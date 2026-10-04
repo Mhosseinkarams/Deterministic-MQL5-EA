@@ -293,40 +293,20 @@ private:
 
                // SL at LAST PIVOT:
                // Find the most recent local pivot low formed during the pullback turn
-               if(m_useLastPivotForCP)
+               double lastPivotLow = rates[1].low;
+               int lookback = MathMin(m_barsSinceSpike + 2, 14);
+
+               // Scan from shift 1 backwards to find the immediate last pivot low
+               for(int k = 1; k < lookback - 1; k++)
                {
-                  double lastPivotLow = rates[1].low;
-                  int lookback = MathMin(m_barsSinceSpike + 2, 14);
-                  bool foundPivot = false;
-
-                  // Scan from shift 1 backwards to find the immediate last pivot low
-                  for(int k = 1; k < lookback - 1; k++)
+                  if(rates[k].low <= rates[k - 1].low && rates[k].low <= rates[k + 1].low)
                   {
-                     if(rates[k].low <= rates[k - 1].low && rates[k].low <= rates[k + 1].low)
-                     {
-                        lastPivotLow = rates[k].low;
-                        foundPivot   = true;
-                        break; // Most recent pivot low
-                     }
+                     lastPivotLow = rates[k].low;
+                     break; // Most recent pivot low
                   }
-
-                  if(!foundPivot)
-                  {
-                     // Fallback: lowest low of the pullback wave
-                     for(int k = 1; k < lookback; k++)
-                     {
-                        if(rates[k].low < lastPivotLow)
-                           lastPivotLow = rates[k].low;
-                     }
-                  }
-
-                  slPrice = lastPivotLow - (currentAtr * m_cpLastPivotBufferAtr);
                }
-               else
-               {
-                  // Legacy: entire pullback extreme
-                  slPrice = m_pullbackExtremePrice - (currentAtr * 0.15);
-               }
+
+               slPrice = lastPivotLow - (currentAtr * m_cpLastPivotBufferAtr);
 
                // Sanity check: Ensure SL is below entry and not negative
                if(slPrice >= entryPrice)
@@ -375,37 +355,19 @@ private:
 
                // SL at LAST PIVOT:
                // Find the most recent local pivot high formed during the pullback turn
-               if(m_useLastPivotForCP)
+               double lastPivotHigh = rates[1].high;
+               int lookback = MathMin(m_barsSinceSpike + 2, 14);
+
+               for(int k = 1; k < lookback - 1; k++)
                {
-                  double lastPivotHigh = rates[1].high;
-                  int lookback = MathMin(m_barsSinceSpike + 2, 14);
-                  bool foundPivot = false;
-
-                  for(int k = 1; k < lookback - 1; k++)
+                  if(rates[k].high >= rates[k - 1].high && rates[k].high >= rates[k + 1].high)
                   {
-                     if(rates[k].high >= rates[k - 1].high && rates[k].high >= rates[k + 1].high)
-                     {
-                        lastPivotHigh = rates[k].high;
-                        foundPivot    = true;
-                        break;
-                     }
+                     lastPivotHigh = rates[k].high;
+                     break;
                   }
-
-                  if(!foundPivot)
-                  {
-                     for(int k = 1; k < lookback; k++)
-                     {
-                        if(rates[k].high > lastPivotHigh)
-                           lastPivotHigh = rates[k].high;
-                     }
-                  }
-
-                  slPrice = lastPivotHigh + (currentAtr * m_cpLastPivotBufferAtr);
                }
-               else
-               {
-                  slPrice = m_pullbackExtremePrice + (currentAtr * 0.15);
-               }
+
+               slPrice = lastPivotHigh + (currentAtr * m_cpLastPivotBufferAtr);
 
                if(slPrice <= entryPrice)
                   slPrice = entryPrice + (currentAtr * 0.30);
@@ -468,23 +430,8 @@ private:
          // Strong bullish candle, agrees with trend, near EMA21 (preferably touches)
          if(touchesEma21 && candle.isStrongBull && candle.close > ema21)
          {
-            double slPrice = 0.0;
-            if(m_movingBehindEmaSL)
-            {
-               // SL placed strictly behind EMA 21
-               slPrice = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
-               // If candle low pierced below EMA 21, ensure SL is slightly below the candle low
-               if(candle.low < ema21)
-                  slPrice = MathMin(slPrice, candle.low - (currentAtr * m_movingBehindEmaBufferAtr));
-            }
-            else
-            {
-               // Legacy
-               SwingPoint lastLow;
-               slPrice = candle.low - (currentAtr * 0.15);
-               if(structure.GetLastLow(lastLow) && lastLow.price < candle.close)
-                  slPrice = MathMin(slPrice, lastLow.price);
-            }
+            // SL placed strictly behind EMA 21
+            double slPrice = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
 
             signal.strategy     = STRATEGY_UNIT_MOVING;
             signal.signalType   = SIGNAL_UNIT_MOVING_STD_BUY;
@@ -505,17 +452,8 @@ private:
          // Candle crosses EMA21 with high bullish momentum
          if(candle.isVeryStrongBull && candle.open < ema21 && candle.close > ema21)
          {
-            double slPrice = 0.0;
-            if(m_movingBehindEmaSL)
-            {
-               slPrice = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
-               if(candle.low < ema21)
-                  slPrice = MathMin(slPrice, candle.low - (currentAtr * m_movingBehindEmaBufferAtr));
-            }
-            else
-            {
-               slPrice = candle.low - (currentAtr * 0.20);
-            }
+            // SL placed strictly behind EMA 21
+            double slPrice = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
 
             signal.strategy     = STRATEGY_UNIT_MOVING;
             signal.signalType   = SIGNAL_UNIT_MOVING_HR_BUY;
@@ -540,21 +478,8 @@ private:
          // 1. UniT Moving Standard Sell
          if(touchesEma21 && candle.isStrongBear && candle.close < ema21)
          {
-            double slPrice = 0.0;
-            if(m_movingBehindEmaSL)
-            {
-               // SL placed strictly behind EMA 21
-               slPrice = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
-               if(candle.high > ema21)
-                  slPrice = MathMax(slPrice, candle.high + (currentAtr * m_movingBehindEmaBufferAtr));
-            }
-            else
-            {
-               SwingPoint lastHigh;
-               slPrice = candle.high + (currentAtr * 0.15);
-               if(structure.GetLastHigh(lastHigh) && lastHigh.price > candle.close)
-                  slPrice = MathMax(slPrice, lastHigh.price);
-            }
+            // SL placed strictly behind EMA 21
+            double slPrice = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
 
             signal.strategy     = STRATEGY_UNIT_MOVING;
             signal.signalType   = SIGNAL_UNIT_MOVING_STD_SELL;
@@ -574,17 +499,8 @@ private:
          // 2. UniT Moving High-Risk Sell
          if(candle.isVeryStrongBear && candle.open > ema21 && candle.close < ema21)
          {
-            double slPrice = 0.0;
-            if(m_movingBehindEmaSL)
-            {
-               slPrice = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
-               if(candle.high > ema21)
-                  slPrice = MathMax(slPrice, candle.high + (currentAtr * m_movingBehindEmaBufferAtr));
-            }
-            else
-            {
-               slPrice = candle.high + (currentAtr * 0.20);
-            }
+            // SL placed strictly behind EMA 21
+            double slPrice = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
 
             signal.strategy     = STRATEGY_UNIT_MOVING;
             signal.signalType   = SIGNAL_UNIT_MOVING_HR_SELL;

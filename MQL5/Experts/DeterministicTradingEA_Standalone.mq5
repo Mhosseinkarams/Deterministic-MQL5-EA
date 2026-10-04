@@ -1449,37 +1449,19 @@ public:
                      double entryPrice = candle.close;
                      double sl = 0.0;
 
-                     if(m_useLastPivotForCP)
+                     double lastPivotLow = rates[1].low;
+                     int lookback = MathMin(m_barsSinceSpike + 2, 14);
+
+                     for(int k = 1; k < lookback - 1; k++)
                      {
-                        double lastPivotLow = rates[1].low;
-                        int lookback = MathMin(m_barsSinceSpike + 2, 14);
-                        bool foundPivot = false;
-
-                        for(int k = 1; k < lookback - 1; k++)
+                        if(rates[k].low <= rates[k - 1].low && rates[k].low <= rates[k + 1].low)
                         {
-                           if(rates[k].low <= rates[k - 1].low && rates[k].low <= rates[k + 1].low)
-                           {
-                              lastPivotLow = rates[k].low;
-                              foundPivot   = true;
-                              break;
-                           }
+                           lastPivotLow = rates[k].low;
+                           break;
                         }
-
-                        if(!foundPivot)
-                        {
-                           for(int k = 1; k < lookback; k++)
-                           {
-                              if(rates[k].low < lastPivotLow)
-                                 lastPivotLow = rates[k].low;
-                           }
-                        }
-
-                        sl = lastPivotLow - (currentAtr * m_cpLastPivotBufferAtr);
                      }
-                     else
-                     {
-                        sl = m_pullbackExtremePrice - (currentAtr * 0.15);
-                     }
+
+                     sl = lastPivotLow - (currentAtr * m_cpLastPivotBufferAtr);
 
                      if(sl >= entryPrice) sl = entryPrice - (currentAtr * 0.30);
 
@@ -1515,37 +1497,19 @@ public:
                      double entryPrice = candle.close;
                      double sl = 0.0;
 
-                     if(m_useLastPivotForCP)
+                     double lastPivotHigh = rates[1].high;
+                     int lookback = MathMin(m_barsSinceSpike + 2, 14);
+
+                     for(int k = 1; k < lookback - 1; k++)
                      {
-                        double lastPivotHigh = rates[1].high;
-                        int lookback = MathMin(m_barsSinceSpike + 2, 14);
-                        bool foundPivot = false;
-
-                        for(int k = 1; k < lookback - 1; k++)
+                        if(rates[k].high >= rates[k - 1].high && rates[k].high >= rates[k + 1].high)
                         {
-                           if(rates[k].high >= rates[k - 1].high && rates[k].high >= rates[k + 1].high)
-                           {
-                              lastPivotHigh = rates[k].high;
-                              foundPivot    = true;
-                              break;
-                           }
+                           lastPivotHigh = rates[k].high;
+                           break;
                         }
-
-                        if(!foundPivot)
-                        {
-                           for(int k = 1; k < lookback; k++)
-                           {
-                              if(rates[k].high > lastPivotHigh)
-                                 lastPivotHigh = rates[k].high;
-                           }
-                        }
-
-                        sl = lastPivotHigh + (currentAtr * m_cpLastPivotBufferAtr);
                      }
-                     else
-                     {
-                        sl = m_pullbackExtremePrice + (currentAtr * 0.15);
-                     }
+
+                     sl = lastPivotHigh + (currentAtr * m_cpLastPivotBufferAtr);
 
                      if(sl <= entryPrice) sl = entryPrice + (currentAtr * 0.30);
 
@@ -1589,16 +1553,7 @@ public:
             if(touches && candle.isStrongBull && candle.close > ema21)
             {
                double sl = 0.0;
-               if(m_movingBehindEmaSL)
-               {
-                  sl = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
-                  if(candle.low < ema21)
-                     sl = MathMin(sl, candle.low - (currentAtr * m_movingBehindEmaBufferAtr));
-               }
-               else
-               {
-                  sl = candle.low - (currentAtr * 0.15);
-               }
+               sl = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
 
                signal.strategy     = STRATEGY_UNIT_MOVING;
                signal.signalType   = SIGNAL_UNIT_MOVING_STD_BUY;
@@ -1617,16 +1572,7 @@ public:
             if(candle.isVeryStrongBull && candle.open < ema21 && candle.close > ema21)
             {
                double sl = 0.0;
-               if(m_movingBehindEmaSL)
-               {
-                  sl = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
-                  if(candle.low < ema21)
-                     sl = MathMin(sl, candle.low - (currentAtr * m_movingBehindEmaBufferAtr));
-               }
-               else
-               {
-                  sl = candle.low - (currentAtr * 0.20);
-               }
+               sl = ema21 - (currentAtr * m_movingBehindEmaBufferAtr);
 
                signal.strategy     = STRATEGY_UNIT_MOVING;
                signal.signalType   = SIGNAL_UNIT_MOVING_HR_BUY;
@@ -1649,16 +1595,7 @@ public:
             if(touches && candle.isStrongBear && candle.close < ema21)
             {
                double sl = 0.0;
-               if(m_movingBehindEmaSL)
-               {
-                  sl = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
-                  if(candle.high > ema21)
-                     sl = MathMax(sl, candle.high + (currentAtr * m_movingBehindEmaBufferAtr));
-               }
-               else
-               {
-                  sl = candle.high + (currentAtr * 0.15);
-               }
+               sl = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
 
                signal.strategy     = STRATEGY_UNIT_MOVING;
                signal.signalType   = SIGNAL_UNIT_MOVING_STD_SELL;
@@ -1677,16 +1614,7 @@ public:
             if(candle.isVeryStrongBear && candle.open > ema21 && candle.close < ema21)
             {
                double sl = 0.0;
-               if(m_movingBehindEmaSL)
-               {
-                  sl = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
-                  if(candle.high > ema21)
-                     sl = MathMax(sl, candle.high + (currentAtr * m_movingBehindEmaBufferAtr));
-               }
-               else
-               {
-                  sl = candle.high + (currentAtr * 0.20);
-               }
+               sl = ema21 + (currentAtr * m_movingBehindEmaBufferAtr);
 
                signal.strategy     = STRATEGY_UNIT_MOVING;
                signal.signalType   = SIGNAL_UNIT_MOVING_HR_SELL;
