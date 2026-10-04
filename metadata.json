@@ -1,0 +1,6 @@
+{
+  "name": "Deterministic MQL5 EA Studio - MM, SM & UniT",
+  "description": "Rule-based MQL5 Expert Advisor implementing MM, Stubborn Man (SM), and UniT deterministic algorithmic strategies with zero AI/ML/news dependencies.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
