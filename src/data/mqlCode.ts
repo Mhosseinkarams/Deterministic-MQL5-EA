@@ -150,7 +150,10 @@ void CMarketStructureEngine::Update(const double currentAtr, const int lookbackB
     name: 'RiskEngine.mqh',
     path: 'MQL5/Include/Deterministic/RiskEngine.mqh',
     category: 'include',
-    description: 'Central Risk Authority: 4% daily loss, 3.8% Hard Kill switch, 3-loss risk halving.',
-    code: `// Sizing for Forex, XAUUSD, CFDs with tick value normalization`
+    description: 'Central Risk Authority: Dual TP Modes (Auto vs Manual), 4% daily loss, 3.8% Hard Kill switch, 3-loss risk halving.',
+    code: `// Dual Take Profit Modes:
+// Auto: EA dynamically assigns TP (2R, 1.8R, 1.5R, 2.5R per strategy)
+// Manual: User chooses fixed TP size for all signals (1R, 2R, 3R, etc.)
+void ApplyTakeProfit(TradeSignal &signal);`
   }
 ];

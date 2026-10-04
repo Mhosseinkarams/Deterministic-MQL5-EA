@@ -29,6 +29,12 @@ enum ENUM_STRATEGY_TYPE
    STRATEGY_UNIT_MOVING  = 4    // UniT Moving (EMA21 Dynamic Follow)
 };
 
+enum ENUM_TP_MODE
+{
+   TP_MODE_AUTO   = 0,  // Auto: Strategy determines TP (e.g. 1.5R, 1.8R, 2.0R, 2.5R per setup)
+   TP_MODE_MANUAL = 1   // Manual: User chooses fixed R-multiple for all signals (e.g. 1R, 2R, 3R)
+};
+
 enum ENUM_SIGNAL_TYPE
 {
    SIGNAL_NONE           = 0,
@@ -1768,6 +1774,8 @@ private:
    bool              m_eodFlatEnabled;
    int               m_eodCloseHour;
    int               m_eodCloseMinute;
+   ENUM_TP_MODE      m_tpMode;
+   double            m_manualTpMultiple;
    int               m_consecutiveLossCount;
    bool              m_isReducedRiskMode;
    datetime          m_currentDay;
@@ -1784,6 +1792,8 @@ public:
         m_eodFlatEnabled(true),
         m_eodCloseHour(23),
         m_eodCloseMinute(45),
+        m_tpMode(TP_MODE_AUTO),
+        m_manualTpMultiple(2.0),
         m_consecutiveLossCount(0),
         m_isReducedRiskMode(false),
         m_currentDay(0),
@@ -1792,7 +1802,7 @@ public:
    {
    }
 
-   bool Init(const double maxRisk = 1.0, const double maxDaily = 4.0, const double hardKill = 3.8, const double minRR = 1.5, const int maxSpread = 35, const bool eod = true, const int eodH = 23, const int eodM = 45)
+   bool Init(const double maxRisk = 1.0, const double maxDaily = 4.0, const double hardKill = 3.8, const double minRR = 1.5, const int maxSpread = 35, const bool eod = true, const int eodH = 23, const int eodM = 45, const ENUM_TP_MODE tpMode = TP_MODE_AUTO, const double manualMultiple = 2.0)
    {
       m_maxRiskPerTradePercent   = maxRisk;
       m_maxDailyLossPercent      = maxDaily;
@@ -1802,6 +1812,8 @@ public:
       m_eodFlatEnabled           = eod;
       m_eodCloseHour             = eodH;
       m_eodCloseMinute           = eodM;
+      m_tpMode                   = tpMode;
+      m_manualTpMultiple         = manualMultiple;
       UpdateDailyState();
       return true;
    }
@@ -1835,6 +1847,28 @@ public:
       return (outDrawdownPercent < m_maxDailyLossPercent);
    }
 
+   void ApplyTakeProfit(TradeSignal &signal) const
+   {
+      if(m_tpMode == TP_MODE_MANUAL && m_manualTpMultiple > 0.0)
+      {
+         double riskDist = MathAbs(signal.entryPrice - signal.stopLoss);
+         if(riskDist > 0.0)
+         {
+            if(signal.direction == DIR_BUY)
+               signal.takeProfit = signal.entryPrice + (riskDist * m_manualTpMultiple);
+            else if(signal.direction == DIR_SELL)
+               signal.takeProfit = signal.entryPrice - (riskDist * m_manualTpMultiple);
+
+            signal.riskRewardRatio = m_manualTpMultiple;
+            signal.reasonCode += StringFormat("|MANUAL_TP_%.1fR", m_manualTpMultiple);
+         }
+      }
+      else
+      {
+         signal.reasonCode += StringFormat("|AUTO_TP_%.1fR", signal.riskRewardRatio);
+      }
+   }
+
    bool ValidateSignal(TradeSignal &signal, string &rejectionReason)
    {
       rejectionReason = "";
@@ -1851,9 +1885,14 @@ public:
          return false;
       }
 
-      if(signal.riskRewardRatio < m_minRiskRewardRatio)
+      // Apply TP setting (Auto dynamic vs Manual user-chosen)
+      ApplyTakeProfit(signal);
+
+      // In manual mode, user's choice sets the floor
+      double effectiveMinRR = (m_tpMode == TP_MODE_MANUAL) ? m_manualTpMultiple : m_minRiskRewardRatio;
+      if(signal.riskRewardRatio < effectiveMinRR)
       {
-         rejectionReason = StringFormat("R:R %.2f below min %.2f", signal.riskRewardRatio, m_minRiskRewardRatio);
+         rejectionReason = StringFormat("R:R %.2f below min %.2f", signal.riskRewardRatio, effectiveMinRR);
          return false;
       }
 
@@ -2033,6 +2072,10 @@ input double            InpUniTCP_PivotBufferAtr= 0.10;        // UniT CP SL Buf
 input bool              InpUniTMoving_BehindEmaSL= true;       // UniT Moving SL: Behind EMA 21 (Tight)
 input double            InpUniTMoving_BehindEmaBuf= 0.10;      // UniT Moving SL Buffer Behind EMA 21 (x ATR)
 
+input group "=== Take Profit Configuration ==="
+input ENUM_TP_MODE      InpTpMode               = TP_MODE_AUTO;   // Take Profit Mode (Auto vs Manual)
+input double            InpManualTpMultiple     = 2.0;            // Manual TP Size (R-Multiple: 1.0 = 1R, 2.0 = 2R, 3.0 = 3R)
+
 input group "=== Risk & Capital Protection ==="
 input double            InpBaseRiskPercent      = 1.0;         // Base Risk Per Trade (%)
 input double            InpMaxDailyLossPercent  = 4.0;         // Max Daily Loss (%)
@@ -2083,7 +2126,7 @@ int OnInit()
    g_strategyMM.Init(_Symbol, InpStrategyTimeframe, InpEnableMMStandard, InpEnableMMHighRisk, InpEnableMMReversal, InpMMMinSeparationAtr, InpMMRevSeparationAtr, InpMMTightEmaSl, InpMMTightEmaSlBufferAtr);
    g_strategySM.Init(_Symbol, InpStrategyTimeframe, InpBaseRiskPercent, InpSMZoneApproachAtr);
    g_strategyUniT.Init(_Symbol, InpStrategyTimeframe, InpEnableUniT_CP, InpEnableUniT_Moving, InpUniTBaseRiskPercent, InpUniTCP_LastPivotSL, InpUniTCP_PivotBufferAtr, InpUniTMoving_BehindEmaSL, InpUniTMoving_BehindEmaBuf);
-   g_riskEngine.Init(InpBaseRiskPercent, InpMaxDailyLossPercent, InpHardKillThreshold, InpMinRiskRewardRatio, InpMaxSpreadPoints, InpEnableEODFlat, InpEODCloseHour, InpEODCloseMinute);
+   g_riskEngine.Init(InpBaseRiskPercent, InpMaxDailyLossPercent, InpHardKillThreshold, InpMinRiskRewardRatio, InpMaxSpreadPoints, InpEnableEODFlat, InpEODCloseHour, InpEODCloseMinute, InpTpMode, InpManualTpMultiple);
    return INIT_SUCCEEDED;
 }
 

@@ -28,6 +28,10 @@ private:
    int               m_eodCloseHour;
    int               m_eodCloseMinute;
 
+   // Take profit mode configuration
+   ENUM_TP_MODE      m_tpMode;
+   double            m_manualTpMultiple;         // e.g. 1.0 (1R), 2.0 (2R), 3.0 (3R)
+
    // Consecutive loss tracking state
    int               m_consecutiveLossCount;
    bool              m_isReducedRiskMode;
@@ -52,6 +56,8 @@ public:
         m_eodFlatEnabled(true),
         m_eodCloseHour(23),
         m_eodCloseMinute(45),
+        m_tpMode(TP_MODE_AUTO),
+        m_manualTpMultiple(2.0),
         m_consecutiveLossCount(0),
         m_isReducedRiskMode(false),
         m_reducedRiskPercent(0.50),
@@ -73,7 +79,9 @@ public:
              const int maxSpread = 35,
              const bool eodFlat = true,
              const int eodHour = 23,
-             const int eodMinute = 45)
+             const int eodMinute = 45,
+             const ENUM_TP_MODE tpMode = TP_MODE_AUTO,
+             const double manualTpMultiple = 2.0)
    {
       m_maxRiskPerTradePercent    = maxRisk;
       m_maxDailyLossPercent       = maxDailyLoss;
@@ -83,6 +91,8 @@ public:
       m_eodFlatEnabled            = eodFlat;
       m_eodCloseHour              = eodHour;
       m_eodCloseMinute            = eodMinute;
+      m_tpMode                    = tpMode;
+      m_manualTpMultiple          = manualTpMultiple;
 
       UpdateDailyState();
       return true;
@@ -141,6 +151,34 @@ public:
    }
 
    //+------------------------------------------------------------------+
+   //| Apply Auto or Manual Take Profit Setting                         |
+   //| Auto: Retains EA strategy-chosen dynamic TP (1.5R, 1.8R, 2.0R,   |
+   //|       2.5R, or zone target)                                      |
+   //| Manual: Enforces user-selected fixed R-multiple for all signals  |
+   //+------------------------------------------------------------------+
+   void ApplyTakeProfit(TradeSignal &signal) const
+   {
+      if(m_tpMode == TP_MODE_MANUAL && m_manualTpMultiple > 0.0)
+      {
+         double riskDist = MathAbs(signal.entryPrice - signal.stopLoss);
+         if(riskDist > 0.0)
+         {
+            if(signal.direction == DIR_BUY)
+               signal.takeProfit = signal.entryPrice + (riskDist * m_manualTpMultiple);
+            else if(signal.direction == DIR_SELL)
+               signal.takeProfit = signal.entryPrice - (riskDist * m_manualTpMultiple);
+
+            signal.riskRewardRatio = m_manualTpMultiple;
+            signal.reasonCode += StringFormat("|MANUAL_TP_%.1fR", m_manualTpMultiple);
+         }
+      }
+      else
+      {
+         signal.reasonCode += StringFormat("|AUTO_TP_%.1fR", signal.riskRewardRatio);
+      }
+   }
+
+   //+------------------------------------------------------------------+
    //| Validate Trade Signal with Central Authority                     |
    //+------------------------------------------------------------------+
    bool ValidateSignal(TradeSignal &signal, string &rejectionReason)
@@ -174,16 +212,21 @@ public:
          return false;
       }
 
-      // 3. Check Minimum Risk:Reward Ratio
-      if(signal.riskRewardRatio < m_minRiskRewardRatio)
+      // 3. Apply TP Setting (Auto or Manual)
+      ApplyTakeProfit(signal);
+
+      // 4. Check Minimum Risk:Reward Ratio
+      // In manual mode, the user-chosen multiple governs the validation floor.
+      double effectiveMinRR = (m_tpMode == TP_MODE_MANUAL) ? m_manualTpMultiple : m_minRiskRewardRatio;
+      if(signal.riskRewardRatio < effectiveMinRR)
       {
          signal.rejectionReason = REJECT_INVALID_RR;
          rejectionReason = StringFormat("R:R ratio %.2f below minimum acceptable %.2f",
-                                        signal.riskRewardRatio, m_minRiskRewardRatio);
+                                        signal.riskRewardRatio, effectiveMinRR);
          return false;
       }
 
-      // 4. Check Spread
+      // 5. Check Spread
       if(!m_symbolInfo.Name(signal.symbol))
          m_symbolInfo.RefreshRates();
 

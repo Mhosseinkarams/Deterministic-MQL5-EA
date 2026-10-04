@@ -48,6 +48,8 @@ export default function App() {
   const [calcEntry, setCalcEntry] = useState<number>(1.0850);
   const [calcSL, setCalcSL] = useState<number>(1.0830);
   const [consecLosses, setConsecLosses] = useState<number>(0);
+  const [calcTpMode, setCalcTpMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const [calcManualTpMultiple, setCalcManualTpMultiple] = useState<number>(2.0);
 
   // Tests state
   const [tests, setTests] = useState<VerificationTest[]>(VERIFICATION_TESTS);
@@ -898,15 +900,114 @@ export default function App() {
                       className="w-full accent-emerald-500"
                     />
                   </div>
+
+                  {/* Take Profit Mode Configuration (Auto vs Manual) */}
+                  <div className="pt-3 border-t border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                        Take Profit Mode
+                      </label>
+                      <div className="flex bg-slate-950 rounded-lg p-0.5 border border-slate-800">
+                        <button
+                          onClick={() => setCalcTpMode('AUTO')}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                            calcTpMode === 'AUTO'
+                              ? 'bg-emerald-600 text-white shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Auto (EA Choses)
+                        </button>
+                        <button
+                          onClick={() => setCalcTpMode('MANUAL')}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                            calcTpMode === 'MANUAL'
+                              ? 'bg-cyan-600 text-white shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Manual (User Choses)
+                        </button>
+                      </div>
+                    </div>
+
+                    {calcTpMode === 'AUTO' ? (
+                      <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 text-[11px] space-y-1.5">
+                        <div className="text-slate-400 text-[10px] uppercase tracking-wider font-semibold">
+                          EA Dynamic Rules (InpTpMode = TP_MODE_AUTO)
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>MM Trend & UniT CP Retest:</span>
+                          <span className="text-emerald-400 font-mono font-bold">2.0R</span>
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>UniT Moving (EMA21 Dynamic):</span>
+                          <span className="text-emerald-400 font-mono font-bold">1.8R</span>
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>High-Risk Setups (Momentum Cross):</span>
+                          <span className="text-amber-400 font-mono font-bold">1.5R</span>
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>MM Reversal Overextension:</span>
+                          <span className="text-cyan-400 font-mono font-bold">2.5R</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-slate-950/70 border border-cyan-800/50 space-y-2.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-300 font-medium">Manual Target Multiple for ALL Signals:</span>
+                          <span className="font-mono text-cyan-400 font-bold text-sm">{calcManualTpMultiple.toFixed(1)}R</span>
+                        </div>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {[1.0, 1.5, 2.0, 2.5, 3.0].map((mult) => (
+                            <button
+                              key={mult}
+                              onClick={() => setCalcManualTpMultiple(mult)}
+                              className={`py-1.5 rounded-lg text-xs font-mono font-bold transition ${
+                                calcManualTpMultiple === mult
+                                  ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+                                  : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
+                              }`}
+                            >
+                              {mult.toFixed(1)}R
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span>Custom R-Multiple:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.5"
+                            max="10.0"
+                            value={calcManualTpMultiple}
+                            onChange={(e) => setCalcManualTpMultiple(Math.max(0.5, Number(e.target.value)))}
+                            className="w-20 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-right font-mono text-cyan-400 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
               {/* Calculated Outputs */}
               <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">
-                    Position Sizing Output
-                  </h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Position Sizing & Take Profit Output
+                    </h3>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                      calcTpMode === 'AUTO'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                    }`}>
+                      {calcTpMode === 'AUTO' ? 'AUTO TP MODE' : `MANUAL TP (${calcManualTpMultiple.toFixed(1)}R)`}
+                    </span>
+                  </div>
 
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
@@ -928,20 +1029,44 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2 font-mono">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">SL Distance:</span>
-                      <span className="text-slate-200">{Math.abs(calcEntry - calcSL).toFixed(calcSymbol === 'XAUUSD' ? 2 : 5)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Max Loss Per Lot:</span>
-                      <span className="text-slate-200">${lotCalc.lossPerLot.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Hard Kill Equity Threshold:</span>
-                      <span className="text-rose-400 font-semibold">${(calcEquity * 0.962).toFixed(2)} (3.8% DD)</span>
-                    </div>
-                  </div>
+                  {/* TP & Risk:Reward Metrics */}
+                  {(() => {
+                    const slDist = Math.abs(calcEntry - calcSL);
+                    const isBuy = calcEntry >= calcSL;
+                    const rMultiple = calcTpMode === 'AUTO' ? 2.0 : calcManualTpMultiple;
+                    const targetTP = isBuy ? calcEntry + (slDist * rMultiple) : calcEntry - (slDist * rMultiple);
+                    const rewardDollars = lotCalc.riskMoney * rMultiple;
+                    const priceDecimals = calcSymbol === 'XAUUSD' ? 2 : (calcSymbol === 'US30' ? 0 : 5);
+
+                    return (
+                      <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2.5 font-mono">
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-850">
+                          <span className="text-slate-400">Target Take Profit:</span>
+                          <span className="text-cyan-400 font-bold text-sm">{targetTP.toFixed(priceDecimals)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Risk-to-Reward Ratio:</span>
+                          <span className="text-emerald-400 font-semibold">1 : {rMultiple.toFixed(1)} ({rMultiple.toFixed(1)}R)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Anticipated Profit at TP:</span>
+                          <span className="text-emerald-400 font-bold">+${rewardDollars.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">SL Distance:</span>
+                          <span className="text-slate-200">{slDist.toFixed(priceDecimals)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Max Loss Per Lot:</span>
+                          <span className="text-slate-200">${lotCalc.lossPerLot.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Hard Kill Equity Threshold:</span>
+                          <span className="text-rose-400 font-semibold">${(calcEquity * 0.962).toFixed(2)} (3.8% DD)</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="mt-4 p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400">

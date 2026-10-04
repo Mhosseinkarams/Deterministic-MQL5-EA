@@ -149,6 +149,10 @@ The \`CRiskEngine\` exercises absolute, non-bypassable authority over the execut
 - Max Risk Per Trade: 1.0%
 - Max Daily Drawdown: 4.0%
 - Hard Kill Switch: 3.8% (liquidates all open trades and halts trading)
-- Consecutive-Loss Rule: 3 consecutive losses halve risk to 0.5% until 50% recovery.`
+- Consecutive-Loss Rule: 3 consecutive losses halve risk to 0.5% until 50% recovery.
+
+## Dual Take Profit Modes (Auto vs Manual)
+- **Auto Mode (\`TP_MODE_AUTO\`)**: The EA dynamically assigns the TP size per strategy (e.g. 2R for MM Trend and UniT CP, 1.8R for UniT Moving, 1.5R for High-Risk, 2.5R for Reversals).
+- **Manual Mode (\`TP_MODE_MANUAL\`)**: The user selects a fixed target multiple (\`InpManualTpMultiple\`, e.g. 1.0 = 1R, 2.0 = 2R, 3.0 = 3R) which is applied uniformly across all signals.`
   }
 ];

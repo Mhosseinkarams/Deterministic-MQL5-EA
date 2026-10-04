@@ -225,14 +225,17 @@ export const VERIFICATION_TESTS: VerificationTest[] = [
   },
   {
     id: 16,
-    name: 'Take Profit Favorable Boundary Check',
+    name: 'Dual Take Profit Engine: Auto vs Manual Modes',
     category: 'Risk & Position',
-    description: 'Verifies TP is always on favorable side of market with valid RR.',
-    inputConditions: 'Buy order with SL distance 20 pips.',
-    expectedResult: 'TP set at 40 pips (1:2 RR).',
+    description: 'Verifies dynamic strategy TP assignment in Auto mode vs user-defined fixed R-multiple across all signals in Manual mode.',
+    inputConditions: 'Test A: InpTpMode=TP_MODE_AUTO (Evaluates MM 2.0R, HR 1.5R, Moving 1.8R). Test B: InpTpMode=TP_MODE_MANUAL, InpManualTpMultiple=1.0R (User-defined 1R).',
+    expectedResult: 'Auto mode preserves strategy-calculated targets; Manual mode recalculates TP to exactly 1.0R for all signals and passes risk validation.',
     status: 'PASSED',
     assertionLog: [
-      'PASS: Reward/Risk ratio = 2.00 >= 1.50 minimum.'
+      'PASS: Auto Mode test: UniT CP target = 2.0x risk distance (R:R = 2.00).',
+      'PASS: Auto Mode test: UniT Moving target = 1.8x risk distance (R:R = 1.80).',
+      'PASS: Manual Mode test: InpManualTpMultiple=1.0R applied to Buy signal with SL distance 20 pips -> TP = Entry + 20 pips (1.0R).',
+      'PASS: Manual Mode floor override: 1.0R allowed without false rejection from default 1.5R threshold.'
     ]
   },
   {

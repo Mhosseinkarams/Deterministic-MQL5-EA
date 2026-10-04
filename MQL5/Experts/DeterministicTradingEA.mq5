@@ -64,6 +64,10 @@ input double            InpUniTCP_PivotBufferAtr= 0.10;        // UniT CP SL Buf
 input bool              InpUniTMoving_BehindEmaSL= true;       // UniT Moving SL: Behind EMA 21 (Tight)
 input double            InpUniTMoving_BehindEmaBuf= 0.10;      // UniT Moving SL Buffer Behind EMA 21 (x ATR)
 
+input group "=== Take Profit Configuration ==="
+input ENUM_TP_MODE      InpTpMode               = TP_MODE_AUTO;   // Take Profit Mode (Auto vs Manual)
+input double            InpManualTpMultiple     = 2.0;            // Manual TP Size (R-Multiple: 1.0 = 1R, 2.0 = 2R, 3.0 = 3R)
+
 input group "=== Risk & Capital Protection ==="
 input double            InpBaseRiskPercent      = 1.0;         // Base Risk Per Trade (%)
 input double            InpMaxDailyLossPercent  = 4.0;         // Max Daily Loss (%)
@@ -151,7 +155,7 @@ int OnInit()
    g_strategyUniT.Init(_Symbol, InpStrategyTimeframe, InpEnableUniT_CP, InpEnableUniT_Moving, InpUniTBaseRiskPercent, InpUniTCP_LastPivotSL, InpUniTCP_PivotBufferAtr, InpUniTMoving_BehindEmaSL, InpUniTMoving_BehindEmaBuf);
 
    // 5. Initialize Risk & Execution
-   g_riskEngine.Init(InpBaseRiskPercent, InpMaxDailyLossPercent, InpHardKillThreshold, InpMinRiskRewardRatio, InpMaxSpreadPoints, InpEnableEODFlat, InpEODCloseHour, InpEODCloseMinute);
+   g_riskEngine.Init(InpBaseRiskPercent, InpMaxDailyLossPercent, InpHardKillThreshold, InpMinRiskRewardRatio, InpMaxSpreadPoints, InpEnableEODFlat, InpEODCloseHour, InpEODCloseMinute, InpTpMode, InpManualTpMultiple);
    
    // 6. Initialize Visualizer & Journal
    g_visualizer.Init(InpEnableDebugVisuals);

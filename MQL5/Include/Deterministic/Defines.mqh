@@ -20,6 +20,12 @@ enum ENUM_STRATEGY_TYPE
    STRATEGY_UNIT_MOVING  = 4    // UniT Moving (EMA21 Dynamic Follow)
 };
 
+enum ENUM_TP_MODE
+{
+   TP_MODE_AUTO   = 0,  // Auto: Strategy determines TP (e.g. 1.5R, 1.8R, 2.0R, 2.5R per setup)
+   TP_MODE_MANUAL = 1   // Manual: User chooses fixed R-multiple for all signals (e.g. 1R, 2R, 3R)
+};
+
 enum ENUM_SIGNAL_TYPE
 {
    SIGNAL_NONE           = 0,
