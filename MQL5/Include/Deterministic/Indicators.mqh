@@ -20,6 +20,7 @@ private:
    int               m_handleEma50;
    int               m_handleSlowEma;  // EMA600 on M5, EMA800 on M15
    int               m_handleAtr;
+   int               m_handleBaselineAtr; // Baseline ATR 100 for volatility regime tracking
    
    int               m_slowEmaPeriod;
    int               m_atrPeriod;
@@ -30,6 +31,7 @@ public:
         m_handleEma50(INVALID_HANDLE),
         m_handleSlowEma(INVALID_HANDLE),
         m_handleAtr(INVALID_HANDLE),
+        m_handleBaselineAtr(INVALID_HANDLE),
         m_slowEmaPeriod(600),
         m_atrPeriod(14)
    {
@@ -86,6 +88,12 @@ public:
          return false;
       }
 
+      m_handleBaselineAtr = iATR(m_symbol, m_timeframe, 100);
+      if(m_handleBaselineAtr == INVALID_HANDLE)
+      {
+         PrintFormat("[IndicatorEngine] Warning: Failed to create baseline ATR100 handle for %s %s", m_symbol, EnumToString(m_timeframe));
+      }
+
       return true;
    }
 
@@ -94,10 +102,11 @@ public:
    //+------------------------------------------------------------------+
    void Release()
    {
-      if(m_handleEma21 != INVALID_HANDLE)   { IndicatorRelease(m_handleEma21);   m_handleEma21 = INVALID_HANDLE; }
-      if(m_handleEma50 != INVALID_HANDLE)   { IndicatorRelease(m_handleEma50);   m_handleEma50 = INVALID_HANDLE; }
-      if(m_handleSlowEma != INVALID_HANDLE) { IndicatorRelease(m_handleSlowEma); m_handleSlowEma = INVALID_HANDLE; }
-      if(m_handleAtr != INVALID_HANDLE)     { IndicatorRelease(m_handleAtr);     m_handleAtr = INVALID_HANDLE; }
+      if(m_handleEma21 != INVALID_HANDLE)       { IndicatorRelease(m_handleEma21);       m_handleEma21 = INVALID_HANDLE; }
+      if(m_handleEma50 != INVALID_HANDLE)       { IndicatorRelease(m_handleEma50);       m_handleEma50 = INVALID_HANDLE; }
+      if(m_handleSlowEma != INVALID_HANDLE)     { IndicatorRelease(m_handleSlowEma);     m_handleSlowEma = INVALID_HANDLE; }
+      if(m_handleAtr != INVALID_HANDLE)         { IndicatorRelease(m_handleAtr);         m_handleAtr = INVALID_HANDLE; }
+      if(m_handleBaselineAtr != INVALID_HANDLE) { IndicatorRelease(m_handleBaselineAtr); m_handleBaselineAtr = INVALID_HANDLE; }
    }
 
    //+------------------------------------------------------------------+
@@ -146,6 +155,29 @@ public:
       ArraySetAsSeries(buffer, true);
       if(CopyBuffer(m_handleAtr, 0, shift, 1, buffer) < 1) return 0.0;
       return buffer[0];
+   }
+
+   //+------------------------------------------------------------------+
+   //| Get Baseline ATR(100) value at shift for regime comparison       |
+   //+------------------------------------------------------------------+
+   double GetBaselineATR(const int shift = 1) const
+   {
+      if(m_handleBaselineAtr == INVALID_HANDLE) return GetATR(shift);
+      double buffer[];
+      ArraySetAsSeries(buffer, true);
+      if(CopyBuffer(m_handleBaselineAtr, 0, shift, 1, buffer) < 1) return GetATR(shift);
+      return buffer[0];
+   }
+
+   //+------------------------------------------------------------------+
+   //| Get Volatility Ratio: ATR(14) / Baseline ATR(100)                |
+   //+------------------------------------------------------------------+
+   double GetVolatilityRatio(const int shift = 1) const
+   {
+      double baseline = GetBaselineATR(shift);
+      if(baseline <= 0.0) return 1.0;
+      double current = GetATR(shift);
+      return (current / baseline);
    }
 
    int GetSlowEmaPeriod() const { return m_slowEmaPeriod; }

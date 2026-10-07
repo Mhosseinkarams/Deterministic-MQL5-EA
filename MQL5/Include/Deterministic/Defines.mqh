@@ -26,6 +26,19 @@ enum ENUM_TP_MODE
    TP_MODE_MANUAL = 1   // Manual: User chooses fixed R-multiple for all signals (e.g. 1R, 2R, 3R)
 };
 
+enum ENUM_SELF_OPT_MODE
+{
+   SELF_OPT_DISABLED  = 0,  // Self-optimization disabled: static configuration
+   SELF_OPT_ADAPTIVE  = 1,  // Dynamic strategy weighting, ATR buffer scaling & TP optimization
+   SELF_OPT_AGGRESSIVE= 2   // Accelerated response to regime shifts and strategy drawdowns
+};
+
+enum ENUM_OPTIMIZER_CORE
+{
+   OPT_CORE_CLASSIC  = 0, // Option 1: Classic Quant Optimization (Rolling attribution & statistical thresholds)
+   OPT_CORE_NEURAL   = 1  // Option 2: Smart Neural Network Optimization (Multi-Layer Perceptron & online learning)
+};
+
 enum ENUM_SIGNAL_TYPE
 {
    SIGNAL_NONE           = 0,
@@ -227,4 +240,55 @@ struct AccountRiskState
    double            lossRecoveryTarget;
    double            recoveredAmount;
    bool              isReducedRiskMode;     // True if 3 consecutive losses
+ };
+
+struct StrategyPerformanceMetrics
+{
+   ENUM_STRATEGY_TYPE strategy;
+   string             name;
+   int                totalTrades;
+   int                winningTrades;
+   int                losingTrades;
+   double             winRate;             // 0.0 to 100.0%
+   double             grossProfit;
+   double             grossLoss;
+   double             profitFactor;        // grossProfit / grossLoss
+   double             avgRMultiple;        // Average realized R-multiple
+   double             currentRiskWeight;   // Multiplier on base risk (0.25 to 1.25)
+   bool               isOnProbation;       // True if win rate < 35% or PF < 0.80
+   int                consecutiveLosses;
+   double             performanceScore;    // Composite ranking score (WR * PF)
+};
+
+struct VolatilityRegimeMetrics
+{
+   double             currentAtr;
+   double             baselineAtr;         // 100-period baseline ATR
+   double             volatilityRatio;     // currentAtr / baselineAtr
+   double             bufferScalar;        // 0.85 (compressed) to 1.25 (expansion)
+   bool               isExpansionRegime;   // Ratio > 1.35
+   bool               isCompressionRegime; // Ratio < 0.75
+};
+
+struct SelfOptimizerReport
+{
+   datetime           lastOptimizationTime;
+   ENUM_OPTIMIZER_CORE coreType;
+   int                evalTradeCount;
+   double             bestPerformingWeight;
+   ENUM_STRATEGY_TYPE topStrategy;
+   double             globalBufferScalar;
+   double             recommendedTpMultiple;
+   string             optimizationNotes;
+};
+
+struct NeuralNetworkMetrics
+{
+   double             predictedRiskWeight;    // 0.25 to 1.50
+   double             winConfidence;          // 0.0 to 1.0 (win probability)
+   double             predictedRMultiple;     // 1.2 to 3.0
+   double             neuralBufferScalar;     // 0.80 to 1.40
+   double             currentLoss;            // MSE loss from recent online step
+   int                trainingEpochs;         // Cumulative online backpropagation updates
+   datetime           lastInferenceTime;
 };

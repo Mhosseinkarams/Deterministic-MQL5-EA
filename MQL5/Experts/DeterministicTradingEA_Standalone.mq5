@@ -35,6 +35,19 @@ enum ENUM_TP_MODE
    TP_MODE_MANUAL = 1   // Manual: User chooses fixed R-multiple for all signals (e.g. 1R, 2R, 3R)
 };
 
+enum ENUM_SELF_OPT_MODE
+{
+   SELF_OPT_DISABLED  = 0,
+   SELF_OPT_ADAPTIVE  = 1,
+   SELF_OPT_AGGRESSIVE= 2
+};
+
+enum ENUM_OPTIMIZER_CORE
+{
+   OPT_CORE_CLASSIC  = 0, // Option 1: Classic Quant Optimization (Rolling attribution & statistical thresholds)
+   OPT_CORE_NEURAL   = 1  // Option 2: Smart Neural Network Optimization (Multi-Layer Perceptron & online learning)
+};
+
 enum ENUM_SIGNAL_TYPE
 {
    SIGNAL_NONE           = 0,
@@ -218,6 +231,57 @@ struct RangeChannel
    int               barsInOscillation;
 };
 
+struct StrategyPerformanceMetrics
+{
+   ENUM_STRATEGY_TYPE strategy;
+   string             name;
+   int                totalTrades;
+   int                winningTrades;
+   int                losingTrades;
+   double             winRate;
+   double             grossProfit;
+   double             grossLoss;
+   double             profitFactor;
+   double             avgRMultiple;
+   double             currentRiskWeight;
+   bool               isOnProbation;
+   int                consecutiveLosses;
+   double             performanceScore;
+};
+
+struct VolatilityRegimeMetrics
+{
+   double             currentAtr;
+   double             baselineAtr;
+   double             volatilityRatio;
+   double             bufferScalar;
+   bool               isExpansionRegime;
+   bool               isCompressionRegime;
+};
+
+struct SelfOptimizerReport
+{
+   datetime           lastOptimizationTime;
+   ENUM_OPTIMIZER_CORE coreType;
+   int                evalTradeCount;
+   double             bestPerformingWeight;
+   ENUM_STRATEGY_TYPE topStrategy;
+   double             globalBufferScalar;
+   double             recommendedTpMultiple;
+   string             optimizationNotes;
+};
+
+struct NeuralNetworkMetrics
+{
+   double             predictedRiskWeight;    // 0.30 to 1.40
+   double             winConfidence;          // 0.0 to 1.0 (win probability)
+   double             predictedRMultiple;     // 1.4 to 3.0
+   double             neuralBufferScalar;     // 0.80 to 1.35
+   double             currentLoss;            // MSE loss from recent online step
+   int                trainingEpochs;         // Cumulative online backpropagation updates
+   datetime           lastInferenceTime;
+};
+
 //====================================================================
 // SECTION 2: CANDLE ENGINE
 //====================================================================
@@ -330,6 +394,7 @@ private:
    int               m_handleEma50;
    int               m_handleSlowEma;
    int               m_handleAtr;
+   int               m_handleBaselineAtr;
    int               m_slowEmaPeriod;
    int               m_atrPeriod;
 
@@ -339,6 +404,7 @@ public:
         m_handleEma50(INVALID_HANDLE),
         m_handleSlowEma(INVALID_HANDLE),
         m_handleAtr(INVALID_HANDLE),
+        m_handleBaselineAtr(INVALID_HANDLE),
         m_slowEmaPeriod(600),
         m_atrPeriod(14)
    {
@@ -359,10 +425,11 @@ public:
 
       Release();
 
-      m_handleEma21   = iMA(m_symbol, m_timeframe, 21, 0, MODE_EMA, PRICE_CLOSE);
-      m_handleEma50   = iMA(m_symbol, m_timeframe, 50, 0, MODE_EMA, PRICE_CLOSE);
-      m_handleSlowEma = iMA(m_symbol, m_timeframe, m_slowEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
-      m_handleAtr     = iATR(m_symbol, m_timeframe, m_atrPeriod);
+      m_handleEma21       = iMA(m_symbol, m_timeframe, 21, 0, MODE_EMA, PRICE_CLOSE);
+      m_handleEma50       = iMA(m_symbol, m_timeframe, 50, 0, MODE_EMA, PRICE_CLOSE);
+      m_handleSlowEma     = iMA(m_symbol, m_timeframe, m_slowEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
+      m_handleAtr         = iATR(m_symbol, m_timeframe, m_atrPeriod);
+      m_handleBaselineAtr = iATR(m_symbol, m_timeframe, 100);
 
       return (m_handleEma21 != INVALID_HANDLE &&
               m_handleEma50 != INVALID_HANDLE &&
@@ -372,10 +439,11 @@ public:
 
    void Release()
    {
-      if(m_handleEma21 != INVALID_HANDLE)   { IndicatorRelease(m_handleEma21);   m_handleEma21 = INVALID_HANDLE; }
-      if(m_handleEma50 != INVALID_HANDLE)   { IndicatorRelease(m_handleEma50);   m_handleEma50 = INVALID_HANDLE; }
-      if(m_handleSlowEma != INVALID_HANDLE) { IndicatorRelease(m_handleSlowEma); m_handleSlowEma = INVALID_HANDLE; }
-      if(m_handleAtr != INVALID_HANDLE)     { IndicatorRelease(m_handleAtr);     m_handleAtr = INVALID_HANDLE; }
+      if(m_handleEma21 != INVALID_HANDLE)       { IndicatorRelease(m_handleEma21);       m_handleEma21 = INVALID_HANDLE; }
+      if(m_handleEma50 != INVALID_HANDLE)       { IndicatorRelease(m_handleEma50);       m_handleEma50 = INVALID_HANDLE; }
+      if(m_handleSlowEma != INVALID_HANDLE)     { IndicatorRelease(m_handleSlowEma);     m_handleSlowEma = INVALID_HANDLE; }
+      if(m_handleAtr != INVALID_HANDLE)         { IndicatorRelease(m_handleAtr);         m_handleAtr = INVALID_HANDLE; }
+      if(m_handleBaselineAtr != INVALID_HANDLE) { IndicatorRelease(m_handleBaselineAtr); m_handleBaselineAtr = INVALID_HANDLE; }
    }
 
    double GetEMA21(const int shift = 1) const
@@ -412,6 +480,22 @@ public:
       ArraySetAsSeries(buffer, true);
       if(CopyBuffer(m_handleAtr, 0, shift, 1, buffer) < 1) return 0.0;
       return buffer[0];
+   }
+
+   double GetBaselineATR(const int shift = 1) const
+   {
+      if(m_handleBaselineAtr == INVALID_HANDLE) return GetATR(shift);
+      double buffer[];
+      ArraySetAsSeries(buffer, true);
+      if(CopyBuffer(m_handleBaselineAtr, 0, shift, 1, buffer) < 1) return GetATR(shift);
+      return buffer[0];
+   }
+
+   double GetVolatilityRatio(const int shift = 1) const
+   {
+      double baseline = GetBaselineATR(shift);
+      if(baseline <= 0.0) return 1.0;
+      return (GetATR(shift) / baseline);
    }
 
    int GetSlowEmaPeriod() const { return m_slowEmaPeriod; }
@@ -1761,11 +1845,648 @@ public:
    }
 };
 
+//====================================================================
+// SECTION 10B: SELF-OPTIMIZATION ENGINE
+//====================================================================
+struct ClosedTradeRecord
+{
+   datetime             closeTime;
+   ENUM_STRATEGY_TYPE   strategy;
+   double               profit;
+   double               rMultiple;
+   bool                 isWin;
+};
+
+//+------------------------------------------------------------------+
+//| Native MQL5 Deep Neural Network / Multi-Layer Perceptron (MLP)   |
+//| Topology: 6 Inputs -> 8 Hidden-1 -> 6 Hidden-2 -> 4 Outputs      |
+//| Zero external Python/DLL dependencies; 100% MT5 native code      |
+//+------------------------------------------------------------------+
+class CNeuralOptimizerNet
+{
+private:
+   // Weights & Biases Matrices
+   double            m_w1[6][8];  // Input (6) -> Hidden 1 (8)
+   double            m_b1[8];     // Hidden 1 Biases
+   double            m_w2[8][6];  // Hidden 1 (8) -> Hidden 2 (6)
+   double            m_b2[6];     // Hidden 2 Biases
+   double            m_w3[6][4];  // Hidden 2 (6) -> Output (4)
+   double            m_b3[4];     // Output Biases
+
+   // Activation State Cache for Online Backpropagation
+   double            m_lastInputs[6];
+   double            m_h1[8];
+   double            m_h2[6];
+   double            m_out[4];
+
+   // Learning Hyperparameters
+   double            m_learningRate;  // eta: 0.05
+   double            m_momentum;      // alpha: 0.10
+   double            m_prevDw1[6][8];
+   double            m_prevDw2[8][6];
+   double            m_prevDw3[6][4];
+
+   int               m_trainingEpochs;
+   double            m_lastLoss;
+
+public:
+   CNeuralOptimizerNet()
+      : m_learningRate(0.05),
+        m_momentum(0.10),
+        m_trainingEpochs(0),
+        m_lastLoss(0.0)
+   {
+      InitializeWeights();
+   }
+
+   ~CNeuralOptimizerNet() {}
+
+   void SetLearningRate(const double lr) { m_learningRate = MathMax(0.001, MathMin(0.5, lr)); }
+   int  GetTrainingEpochs() const        { return m_trainingEpochs; }
+   double GetLastLoss() const            { return m_lastLoss; }
+
+   void InitializeWeights()
+   {
+      double seedW1[6][8] = {
+         { 0.32, -0.21,  0.45, -0.15,  0.28, -0.35,  0.18,  0.22},
+         { 0.40,  0.35, -0.25,  0.30, -0.18,  0.27, -0.32,  0.15},
+         { 0.55, -0.42,  0.38,  0.48, -0.22,  0.31, -0.19,  0.41},
+         { 0.28,  0.19, -0.33,  0.25,  0.41, -0.28,  0.35, -0.12},
+         {-0.45,  0.38, -0.50, -0.35,  0.29, -0.41,  0.22, -0.38},
+         { 0.15, -0.18,  0.22, -0.12,  0.33, -0.25,  0.19,  0.30}
+      };
+
+      for(int i = 0; i < 6; i++)
+      {
+         for(int j = 0; j < 8; j++)
+         {
+            m_w1[i][j] = seedW1[i][j];
+            m_prevDw1[i][j] = 0.0;
+         }
+      }
+      for(int j = 0; j < 8; j++) m_b1[j] = 0.05 * (j % 2 == 0 ? 1.0 : -1.0);
+
+      double seedW2[8][6] = {
+         { 0.35, -0.28,  0.42, -0.19,  0.31, -0.22},
+         {-0.25,  0.33, -0.18,  0.41, -0.30,  0.26},
+         { 0.48, -0.35,  0.29, -0.22,  0.37, -0.15},
+         {-0.19,  0.27, -0.38,  0.33, -0.25,  0.42},
+         { 0.31, -0.22,  0.45, -0.29,  0.18, -0.35},
+         {-0.42,  0.38, -0.25,  0.31, -0.40,  0.28},
+         { 0.22, -0.15,  0.33, -0.28,  0.25, -0.19},
+         { 0.29,  0.31, -0.22,  0.35, -0.18,  0.25}
+      };
+
+      for(int j = 0; j < 8; j++)
+      {
+         for(int k = 0; k < 6; k++)
+         {
+            m_w2[j][k] = seedW2[j][k];
+            m_prevDw2[j][k] = 0.0;
+         }
+      }
+      for(int k = 0; k < 6; k++) m_b2[k] = 0.02 * (k % 2 == 0 ? 1.0 : -1.0);
+
+      double seedW3[6][4] = {
+         { 0.52,  0.45,  0.38, -0.25},
+         {-0.38, -0.32, -0.29,  0.35},
+         { 0.44,  0.48,  0.41, -0.18},
+         {-0.49, -0.42, -0.35,  0.42},
+         { 0.35,  0.28,  0.33, -0.22},
+         {-0.28, -0.25, -0.19,  0.31}
+      };
+
+      for(int k = 0; k < 6; k++)
+      {
+         for(int m = 0; m < 4; m++)
+         {
+            m_w3[k][m] = seedW3[k][m];
+            m_prevDw3[k][m] = 0.0;
+         }
+      }
+      for(int m = 0; m < 4; m++) m_b3[m] = 0.0;
+
+      m_trainingEpochs = 0;
+      m_lastLoss       = 0.0;
+   }
+
+   void Forward(const double &inputs[], double &outputs[])
+   {
+      for(int i = 0; i < 6; i++)
+         m_lastInputs[i] = inputs[i];
+
+      // 1. Hidden Layer 1 (Tanh Activation)
+      for(int j = 0; j < 8; j++)
+      {
+         double sum = m_b1[j];
+         for(int i = 0; i < 6; i++)
+            sum += m_lastInputs[i] * m_w1[i][j];
+         m_h1[j] = MathTanh(sum);
+      }
+
+      // 2. Hidden Layer 2 (Tanh Activation)
+      for(int k = 0; k < 6; k++)
+      {
+         double sum = m_b2[k];
+         for(int j = 0; j < 8; j++)
+            sum += m_h1[j] * m_w2[j][k];
+         m_h2[k] = MathTanh(sum);
+      }
+
+      // 3. Output Layer (Sigmoid Activation scaled to trading boundaries)
+      for(int m = 0; m < 4; m++)
+      {
+         double sum = m_b3[m];
+         for(int k = 0; k < 6; k++)
+            sum += m_h2[k] * m_w3[k][m];
+         m_out[m] = Sigmoid(sum);
+      }
+
+      // Domain Scaling
+      outputs[0] = NormalizeDouble(0.30 + (1.10 * m_out[0]), 2); // Risk Weight (0.30x to 1.40x)
+      outputs[1] = NormalizeDouble(m_out[1], 3);                 // Win Probability Confidence (0.0 to 1.0)
+      outputs[2] = NormalizeDouble(1.40 + (1.60 * m_out[2]), 1); // Dynamic Take Profit (1.4R to 3.0R)
+      outputs[3] = NormalizeDouble(0.80 + (0.55 * m_out[3]), 2); // Buffer Scalar (0.80x to 1.35x)
+   }
+
+   void TrainStep(const double actualProfit, const double actualRMultiple)
+   {
+      bool isWin = (actualProfit > 0.0);
+
+      double targetSig[4];
+      targetSig[0] = isWin ? (1.20 - 0.30) / 1.10 : (0.50 - 0.30) / 1.10;
+      targetSig[1] = isWin ? 1.00 : 0.00;
+      targetSig[2] = MathMax(0.0, MathMin(1.0, (MathMax(1.4, actualRMultiple) - 1.40) / 1.60));
+      targetSig[3] = (1.00 - 0.80) / 0.55;
+
+      // 1. Output Layer Deltas (MSE Loss)
+      double dOut[4];
+      m_lastLoss = 0.0;
+      for(int m = 0; m < 4; m++)
+      {
+         double err = m_out[m] - targetSig[m];
+         m_lastLoss += err * err;
+         dOut[m] = err * m_out[m] * (1.0 - m_out[m]);
+      }
+      m_lastLoss /= 4.0;
+
+      // 2. Hidden Layer 2 Deltas
+      double dH2[6];
+      for(int k = 0; k < 6; k++)
+      {
+         double sum = 0.0;
+         for(int m = 0; m < 4; m++)
+            sum += dOut[m] * m_w3[k][m];
+         dH2[k] = sum * (1.0 - (m_h2[k] * m_h2[k]));
+      }
+
+      // 3. Hidden Layer 1 Deltas
+      double dH1[8];
+      for(int j = 0; j < 8; j++)
+      {
+         double sum = 0.0;
+         for(int k = 0; k < 6; k++)
+            sum += dH2[k] * m_w2[j][k];
+         dH1[j] = sum * (1.0 - (m_h1[j] * m_h1[j]));
+      }
+
+      // 4. Update Synapse Weights: Hidden 2 -> Output
+      for(int k = 0; k < 6; k++)
+      {
+         for(int m = 0; m < 4; m++)
+         {
+            double grad = dOut[m] * m_h2[k];
+            double dw = -(m_learningRate * grad) + (m_momentum * m_prevDw3[k][m]);
+            m_w3[k][m] += dw;
+            m_prevDw3[k][m] = dw;
+         }
+      }
+      for(int m = 0; m < 4; m++)
+         m_b3[m] -= m_learningRate * dOut[m];
+
+      // 5. Update Synapse Weights: Hidden 1 -> Hidden 2
+      for(int j = 0; j < 8; j++)
+      {
+         for(int k = 0; k < 6; k++)
+         {
+            double grad = dH2[k] * m_h1[j];
+            double dw = -(m_learningRate * grad) + (m_momentum * m_prevDw2[j][k]);
+            m_w2[j][k] += dw;
+            m_prevDw2[j][k] = dw;
+         }
+      }
+      for(int k = 0; k < 6; k++)
+         m_b2[k] -= m_learningRate * dH2[k];
+
+      // 6. Update Synapse Weights: Input -> Hidden 1
+      for(int i = 0; i < 6; i++)
+      {
+         for(int j = 0; j < 8; j++)
+         {
+            double grad = dH1[j] * m_lastInputs[i];
+            double dw = -(m_learningRate * grad) + (m_momentum * m_prevDw1[i][j]);
+            m_w1[i][j] += dw;
+            m_prevDw1[i][j] = dw;
+         }
+      }
+      for(int j = 0; j < 8; j++)
+         m_b1[j] -= m_learningRate * dH1[j];
+
+      m_trainingEpochs++;
+   }
+
+private:
+   double Sigmoid(const double x) const
+   {
+      if(x < -45.0) return 0.0;
+      if(x >  45.0) return 1.0;
+      return 1.0 / (1.0 + MathExp(-x));
+   }
+};
+
+//+------------------------------------------------------------------+
+//| Master Self-Optimizer Class (Dual Mode: Classic vs Smart Neural) |
+//+------------------------------------------------------------------+
+class CSelfOptimizer
+{
+private:
+   string                  m_symbol;
+   ENUM_TIMEFRAMES         m_timeframe;
+   ENUM_SELF_OPT_MODE      m_mode;
+   ENUM_OPTIMIZER_CORE     m_coreType;             // OPT_CORE_CLASSIC or OPT_CORE_NEURAL
+
+   int                     m_rollingTradeCapacity;
+   int                     m_minTradesForEval;
+   bool                    m_enableAdaptiveVol;
+   bool                    m_enableAdaptiveWeights;
+   bool                    m_enableAdaptiveTp;
+
+   ClosedTradeRecord       m_history[];
+   int                     m_tradeCount;
+
+   StrategyPerformanceMetrics m_mmMetrics;
+   StrategyPerformanceMetrics m_smMetrics;
+   StrategyPerformanceMetrics m_unitCpMetrics;
+   StrategyPerformanceMetrics m_unitMovingMetrics;
+
+   VolatilityRegimeMetrics m_volMetrics;
+
+   CNeuralOptimizerNet     m_neuralNet;
+   NeuralNetworkMetrics    m_neuralMetrics;
+
+   datetime                m_lastOptimizationTime;
+
+public:
+   CSelfOptimizer()
+      : m_mode(SELF_OPT_ADAPTIVE),
+        m_coreType(OPT_CORE_CLASSIC),
+        m_rollingTradeCapacity(30),
+        m_minTradesForEval(4),
+        m_enableAdaptiveVol(true),
+        m_enableAdaptiveWeights(true),
+        m_enableAdaptiveTp(true),
+        m_tradeCount(0),
+        m_lastOptimizationTime(0)
+   {
+      ArrayResize(m_history, m_rollingTradeCapacity);
+      Reset();
+   }
+
+   ~CSelfOptimizer() {}
+
+   bool Init(const string symbol,
+             const ENUM_TIMEFRAMES tf,
+             const ENUM_OPTIMIZER_CORE coreType = OPT_CORE_CLASSIC,
+             const ENUM_SELF_OPT_MODE mode = SELF_OPT_ADAPTIVE,
+             const int rollingTrades = 30,
+             const int minTradesForEval = 4,
+             const bool enableAdaptiveVol = true,
+             const bool enableAdaptiveWeights = true,
+             const bool enableAdaptiveTp = true)
+   {
+      m_symbol                = symbol;
+      m_timeframe             = tf;
+      m_coreType              = coreType;
+      m_mode                  = mode;
+      m_rollingTradeCapacity  = MathMax(10, MathMin(100, rollingTrades));
+      m_minTradesForEval      = MathMax(2, minTradesForEval);
+      m_enableAdaptiveVol     = enableAdaptiveVol;
+      m_enableAdaptiveWeights = enableAdaptiveWeights;
+      m_enableAdaptiveTp      = enableAdaptiveTp;
+
+      ArrayResize(m_history, m_rollingTradeCapacity);
+      Reset();
+      return true;
+   }
+
+   void SetOptimizerCore(const ENUM_OPTIMIZER_CORE core) { m_coreType = core; }
+   ENUM_OPTIMIZER_CORE GetOptimizerCore() const           { return m_coreType; }
+
+   void Reset()
+   {
+      m_tradeCount = 0;
+      ZeroMemory(m_history);
+
+      InitStratMetrics(m_mmMetrics, STRATEGY_MM, "MM (Trend)");
+      InitStratMetrics(m_smMetrics, STRATEGY_SM, "SM (Stubborn Man)");
+      InitStratMetrics(m_unitCpMetrics, STRATEGY_UNIT_CP, "UniT CP");
+      InitStratMetrics(m_unitMovingMetrics, STRATEGY_UNIT_MOVING, "UniT Moving");
+
+      m_volMetrics.currentAtr          = 0.0;
+      m_volMetrics.baselineAtr         = 0.0;
+      m_volMetrics.volatilityRatio     = 1.0;
+      m_volMetrics.bufferScalar        = 1.0;
+      m_volMetrics.isExpansionRegime   = false;
+      m_volMetrics.isCompressionRegime = false;
+
+      m_neuralMetrics.predictedRiskWeight = 1.00;
+      m_neuralMetrics.winConfidence       = 0.60;
+      m_neuralMetrics.predictedRMultiple  = 2.00;
+      m_neuralMetrics.neuralBufferScalar  = 1.00;
+      m_neuralMetrics.currentLoss         = 0.0;
+      m_neuralMetrics.trainingEpochs      = 0;
+      m_neuralMetrics.lastInferenceTime   = TimeCurrent();
+
+      m_neuralNet.InitializeWeights();
+      m_lastOptimizationTime = TimeCurrent();
+   }
+
+   void OnTradeClosed(const ENUM_STRATEGY_TYPE strategy, const double profit, const double rMultiple)
+   {
+      if(m_mode == SELF_OPT_DISABLED || strategy == STRATEGY_NONE) return;
+
+      int idx = m_tradeCount % m_rollingTradeCapacity;
+      m_history[idx].closeTime = TimeCurrent();
+      m_history[idx].strategy  = strategy;
+      m_history[idx].profit    = profit;
+      m_history[idx].rMultiple = rMultiple;
+      m_history[idx].isWin     = (profit > 0.0);
+      m_tradeCount++;
+
+      Recalculate();
+
+      // Online Neural Backpropagation (Option 2: Smart Neural Network)
+      if(m_coreType == OPT_CORE_NEURAL)
+      {
+         m_neuralNet.TrainStep(profit, rMultiple);
+         m_neuralMetrics.currentLoss       = m_neuralNet.GetLastLoss();
+         m_neuralMetrics.trainingEpochs    = m_neuralNet.GetTrainingEpochs();
+         m_neuralMetrics.lastInferenceTime = TimeCurrent();
+      }
+
+      m_lastOptimizationTime = TimeCurrent();
+   }
+
+   void UpdateRegime(const CIndicatorEngine &indicators)
+   {
+      if(m_mode == SELF_OPT_DISABLED || !m_enableAdaptiveVol)
+      {
+         m_volMetrics.bufferScalar = 1.0;
+         return;
+      }
+      m_volMetrics.currentAtr      = indicators.GetATR(1);
+      m_volMetrics.baselineAtr     = indicators.GetBaselineATR(1);
+      m_volMetrics.volatilityRatio = indicators.GetVolatilityRatio(1);
+
+      // Option 1: Classic Quant Thresholds
+      if(m_coreType == OPT_CORE_CLASSIC)
+      {
+         if(m_volMetrics.volatilityRatio < 0.75)
+         {
+            m_volMetrics.isCompressionRegime = true;
+            m_volMetrics.isExpansionRegime   = false;
+            m_volMetrics.bufferScalar        = 0.85;
+         }
+         else if(m_volMetrics.volatilityRatio > 1.35)
+         {
+            m_volMetrics.isExpansionRegime   = true;
+            m_volMetrics.isCompressionRegime = false;
+            m_volMetrics.bufferScalar        = (m_mode == SELF_OPT_AGGRESSIVE) ? 1.35 : 1.25;
+         }
+         else
+         {
+            m_volMetrics.isCompressionRegime = false;
+            m_volMetrics.isExpansionRegime   = false;
+            m_volMetrics.bufferScalar        = 1.00;
+         }
+      }
+      // Option 2: Smart Neural Network Continuous Scaling
+      else
+      {
+         double inputs[6];
+         BuildNeuralFeatureVector(STRATEGY_MM, inputs);
+         double outputs[4];
+         m_neuralNet.Forward(inputs, outputs);
+
+         m_neuralMetrics.neuralBufferScalar  = outputs[3];
+         m_volMetrics.bufferScalar          = outputs[3];
+         m_volMetrics.isExpansionRegime     = (m_volMetrics.volatilityRatio > 1.35);
+         m_volMetrics.isCompressionRegime   = (m_volMetrics.volatilityRatio < 0.75);
+      }
+   }
+
+   double GetStrategyRiskWeight(const ENUM_STRATEGY_TYPE strategy)
+   {
+      if(m_mode == SELF_OPT_DISABLED || !m_enableAdaptiveWeights) return 1.0;
+
+      // Option 1: Classic Quant Attribution Weight
+      if(m_coreType == OPT_CORE_CLASSIC)
+      {
+         switch(strategy)
+         {
+            case STRATEGY_MM:          return m_mmMetrics.currentRiskWeight;
+            case STRATEGY_SM:          return m_smMetrics.currentRiskWeight;
+            case STRATEGY_UNIT_CP:     return m_unitCpMetrics.currentRiskWeight;
+            case STRATEGY_UNIT_MOVING: return m_unitMovingMetrics.currentRiskWeight;
+            default:                   return 1.0;
+         }
+      }
+      // Option 2: Smart Neural Network Predicted Weight
+      else
+      {
+         double inputs[6];
+         BuildNeuralFeatureVector(strategy, inputs);
+         double outputs[4];
+         m_neuralNet.Forward(inputs, outputs);
+
+         m_neuralMetrics.predictedRiskWeight = outputs[0];
+         m_neuralMetrics.winConfidence       = outputs[1];
+         m_neuralMetrics.predictedRMultiple  = outputs[2];
+         m_neuralMetrics.neuralBufferScalar  = outputs[3];
+         m_neuralMetrics.lastInferenceTime   = TimeCurrent();
+
+         return outputs[0];
+      }
+   }
+
+   double GetBufferScalar() const
+   {
+      if(m_mode == SELF_OPT_DISABLED || !m_enableAdaptiveVol) return 1.0;
+      return m_volMetrics.bufferScalar;
+   }
+
+   double GetOptimalTpMultiple(const ENUM_STRATEGY_TYPE strategy, const double baseTpMultiple)
+   {
+      if(m_mode == SELF_OPT_DISABLED || !m_enableAdaptiveTp) return baseTpMultiple;
+
+      // Option 1: Classic Quant Target Calibration
+      if(m_coreType == OPT_CORE_CLASSIC)
+      {
+         StrategyPerformanceMetrics m;
+         if(!GetStratMetrics(strategy, m) || m.totalTrades < m_minTradesForEval) return baseTpMultiple;
+
+         if(m.winRate >= 60.0 && m.avgRMultiple >= 1.8)
+            return NormalizeDouble(MathMin(baseTpMultiple + 0.4, 3.0), 1);
+         else if(m.winRate < 45.0 || m.profitFactor < 1.1)
+            return NormalizeDouble(MathMax(baseTpMultiple - 0.3, 1.4), 1);
+
+         return baseTpMultiple;
+      }
+      // Option 2: Smart Neural Network Predicted R Target
+      else
+      {
+         double inputs[6];
+         BuildNeuralFeatureVector(strategy, inputs);
+         double outputs[4];
+         m_neuralNet.Forward(inputs, outputs);
+         return outputs[2];
+      }
+   }
+
+   void GetNeuralMetrics(NeuralNetworkMetrics &out) const
+   {
+      out = m_neuralMetrics;
+   }
+
+   bool GetStratMetrics(const ENUM_STRATEGY_TYPE strategy, StrategyPerformanceMetrics &out) const
+   {
+      switch(strategy)
+      {
+         case STRATEGY_MM:          out = m_mmMetrics;          return true;
+         case STRATEGY_SM:          out = m_smMetrics;          return true;
+         case STRATEGY_UNIT_CP:     out = m_unitCpMetrics;     return true;
+         case STRATEGY_UNIT_MOVING: out = m_unitMovingMetrics; return true;
+         default:                   return false;
+      }
+   }
+
+   string GetTelemetryString() const
+   {
+      if(m_mode == SELF_OPT_DISABLED) return "Self-Optimizer: DISABLED";
+
+      if(m_coreType == OPT_CORE_NEURAL)
+      {
+         return StringFormat("[SELF-OPT: SMART NEURAL] Epochs: %d | Loss: %.4f | WinConf: %.1f%% | NeuralWeight: %.2fx | VolScalar: %.2fx",
+                             m_neuralMetrics.trainingEpochs, m_neuralMetrics.currentLoss,
+                             m_neuralMetrics.winConfidence * 100.0,
+                             m_neuralMetrics.predictedRiskWeight, m_volMetrics.bufferScalar);
+      }
+
+      return StringFormat("[SELF-OPT: CLASSIC QUANT] VolRatio: %.2f (Scalar: %.2fx) | MM: %.1f%% WR, W:%.2f | SM: %.1f%% WR, W:%.2f%s | UniT-CP: %.1f%% WR, W:%.2f | UniT-Mov: %.1f%% WR, W:%.2f",
+                          m_volMetrics.volatilityRatio, m_volMetrics.bufferScalar,
+                          m_mmMetrics.winRate, m_mmMetrics.currentRiskWeight,
+                          m_smMetrics.winRate, m_smMetrics.currentRiskWeight,
+                          m_smMetrics.isOnProbation ? " [PROBATION]" : "",
+                          m_unitCpMetrics.winRate, m_unitCpMetrics.currentRiskWeight,
+                          m_unitMovingMetrics.winRate, m_unitMovingMetrics.currentRiskWeight);
+   }
+
+private:
+   void BuildNeuralFeatureVector(const ENUM_STRATEGY_TYPE strategy, double &inputs[])
+   {
+      StrategyPerformanceMetrics m;
+      GetStratMetrics(strategy, m);
+
+      inputs[0] = MathMax(-1.0, MathMin(1.0, (m_volMetrics.volatilityRatio - 1.0)));
+      inputs[1] = m_volMetrics.isExpansionRegime ? 0.8 : (m_volMetrics.isCompressionRegime ? -0.8 : 0.0);
+      inputs[2] = MathMax(-1.0, MathMin(1.0, (m.winRate / 50.0) - 1.0));
+      inputs[3] = MathMax(-1.0, MathMin(1.0, (MathMin(m.profitFactor, 3.0) / 1.5) - 1.0));
+      inputs[4] = MathMax(-1.0, MathMin(1.0, (MathMin(m.consecutiveLosses, 5) / 2.5) - 1.0));
+      inputs[5] = MathMax(-1.0, MathMin(1.0, (m.avgRMultiple / 1.5) - 1.0));
+   }
+
+   void InitStratMetrics(StrategyPerformanceMetrics &m, ENUM_STRATEGY_TYPE strat, string name)
+   {
+      m.strategy = strat; m.name = name; m.totalTrades = 0; m.winningTrades = 0;
+      m.losingTrades = 0; m.winRate = 50.0; m.grossProfit = 0.0; m.grossLoss = 0.0;
+      m.profitFactor = 1.0; m.avgRMultiple = 1.5; m.currentRiskWeight = 1.0;
+      m.isOnProbation = false; m.consecutiveLosses = 0; m.performanceScore = 50.0;
+   }
+
+   void Recalculate()
+   {
+      int sample = MathMin(m_tradeCount, m_rollingTradeCapacity);
+      if(sample <= 0) return;
+
+      InitStratMetrics(m_mmMetrics, STRATEGY_MM, "MM (Trend)");
+      InitStratMetrics(m_smMetrics, STRATEGY_SM, "SM (Stubborn Man)");
+      InitStratMetrics(m_unitCpMetrics, STRATEGY_UNIT_CP, "UniT CP");
+      InitStratMetrics(m_unitMovingMetrics, STRATEGY_UNIT_MOVING, "UniT Moving");
+
+      for(int i = 0; i < sample; i++)
+      {
+         ClosedTradeRecord rec = m_history[i];
+         switch(rec.strategy)
+         {
+            case STRATEGY_MM:          Accum(m_mmMetrics, rec); break;
+            case STRATEGY_SM:          Accum(m_smMetrics, rec); break;
+            case STRATEGY_UNIT_CP:     Accum(m_unitCpMetrics, rec); break;
+            case STRATEGY_UNIT_MOVING: Accum(m_unitMovingMetrics, rec); break;
+            default: break;
+         }
+      }
+      Finalize(m_mmMetrics); Finalize(m_smMetrics);
+      Finalize(m_unitCpMetrics); Finalize(m_unitMovingMetrics);
+   }
+
+   void Accum(StrategyPerformanceMetrics &m, const ClosedTradeRecord &rec)
+   {
+      m.totalTrades++;
+      if(rec.isWin) { m.winningTrades++; m.grossProfit += rec.profit; m.consecutiveLosses = 0; }
+      else { m.losingTrades++; m.grossLoss += MathAbs(rec.profit); m.consecutiveLosses++; }
+      m.avgRMultiple += rec.rMultiple;
+   }
+
+   void Finalize(StrategyPerformanceMetrics &m)
+   {
+      if(m.totalTrades <= 0) { m.currentRiskWeight = 1.0; m.isOnProbation = false; return; }
+      m.winRate = ((double)m.winningTrades / (double)m.totalTrades) * 100.0;
+      m.avgRMultiple /= (double)m.totalTrades;
+      m.profitFactor = (m.grossLoss > 0.0) ? (m.grossProfit / m.grossLoss) : (m.grossProfit > 0.0 ? 5.0 : 1.0);
+      m.performanceScore = (m.winRate * 0.4) + (MathMin(m.profitFactor, 3.0) * 20.0);
+
+      if(m.totalTrades >= m_minTradesForEval && m_enableAdaptiveWeights)
+      {
+         if(m.profitFactor < 0.80 || m.winRate < 35.0 || m.consecutiveLosses >= 3)
+         {
+            m.isOnProbation = true;
+            m.currentRiskWeight = (m_mode == SELF_OPT_AGGRESSIVE) ? 0.35 : 0.50;
+         }
+         else if(m.profitFactor >= 1.60 && m.winRate >= 58.0)
+         {
+            m.isOnProbation = false;
+            m.currentRiskWeight = (m_mode == SELF_OPT_AGGRESSIVE) ? 1.30 : 1.20;
+         }
+         else
+         {
+            m.isOnProbation = false;
+            m.currentRiskWeight = 1.00;
+         }
+      }
+      else
+      {
+         m.currentRiskWeight = 1.00;
+         m.isOnProbation = false;
+      }
+   }
+};
+
 class CRiskEngine
 {
 private:
    CAccountInfo      m_account;
    CSymbolInfo       m_symbolInfo;
+   CSelfOptimizer   *m_optimizer;
    double            m_maxRiskPerTradePercent;
    double            m_maxDailyLossPercent;
    double            m_hardKillThresholdPercent;
@@ -1794,6 +2515,7 @@ public:
         m_eodCloseMinute(45),
         m_tpMode(TP_MODE_AUTO),
         m_manualTpMultiple(2.0),
+        m_optimizer(NULL),
         m_consecutiveLossCount(0),
         m_isReducedRiskMode(false),
         m_currentDay(0),
@@ -1816,6 +2538,11 @@ public:
       m_manualTpMultiple         = manualMultiple;
       UpdateDailyState();
       return true;
+   }
+
+   void SetSelfOptimizer(CSelfOptimizer *opt)
+   {
+      m_optimizer = opt;
    }
 
    void UpdateDailyState()
@@ -1865,6 +2592,27 @@ public:
       }
       else
       {
+         double targetR = signal.riskRewardRatio;
+         if(m_optimizer != NULL)
+         {
+            double optR = m_optimizer.GetOptimalTpMultiple(signal.strategy, signal.riskRewardRatio);
+            if(optR != signal.riskRewardRatio && optR > 0.0)
+            {
+               targetR = optR;
+               double riskDist = MathAbs(signal.entryPrice - signal.stopLoss);
+               if(riskDist > 0.0)
+               {
+                  if(signal.direction == DIR_BUY)
+                     signal.takeProfit = signal.entryPrice + (riskDist * targetR);
+                  else if(signal.direction == DIR_SELL)
+                     signal.takeProfit = signal.entryPrice - (riskDist * targetR);
+
+                  signal.riskRewardRatio = targetR;
+                  signal.reasonCode += StringFormat("|SELF_OPT_TP_%.1fR", targetR);
+                  return;
+               }
+            }
+         }
          signal.reasonCode += StringFormat("|AUTO_TP_%.1fR", signal.riskRewardRatio);
       }
    }
@@ -1907,6 +2655,17 @@ public:
          signal.riskPercent = MathMin(signal.riskPercent, 0.50);
       else
          signal.riskPercent = MathMin(signal.riskPercent, m_maxRiskPerTradePercent);
+
+      // Apply Self-Optimizer Strategy Risk Weight Calibration
+      if(m_optimizer != NULL)
+      {
+         double optWeight = m_optimizer.GetStrategyRiskWeight(signal.strategy);
+         if(optWeight != 1.0)
+         {
+            signal.riskPercent *= optWeight;
+            signal.reasonCode += StringFormat("|OPT_WEIGHT_%.2f", optWeight);
+         }
+      }
 
       return true;
    }
@@ -2076,6 +2835,15 @@ input group "=== Take Profit Configuration ==="
 input ENUM_TP_MODE      InpTpMode               = TP_MODE_AUTO;   // Take Profit Mode (Auto vs Manual)
 input double            InpManualTpMultiple     = 2.0;            // Manual TP Size (R-Multiple: 1.0 = 1R, 2.0 = 2R, 3.0 = 3R)
 
+input group "=== Self-Optimization Engine ==="
+input ENUM_OPTIMIZER_CORE InpSelfOptCore        = OPT_CORE_CLASSIC;  // Optimization Core (Option 1: Classic Quant vs Option 2: Smart Neural Network)
+input ENUM_SELF_OPT_MODE InpSelfOptMode         = SELF_OPT_ADAPTIVE; // Self-Optimization Mode (Disabled/Adaptive/Aggressive)
+input int               InpSelfOptRollingTrades = 30;                // Rolling Attribution Window (Trades)
+input int               InpSelfOptMinEvalTrades = 4;                 // Min Trades for Strategy Weight Calibration
+input bool              InpSelfOptAdaptiveVol   = true;              // Adaptive Volatility Buffer Scaling
+input bool              InpSelfOptAdaptiveWeight= true;              // Adaptive Strategy Risk Weighting
+input bool              InpSelfOptAdaptiveTp    = true;              // Adaptive Take Profit R-Multiple Optimization
+
 input group "=== Risk & Capital Protection ==="
 input double            InpBaseRiskPercent      = 1.0;         // Base Risk Per Trade (%)
 input double            InpMaxDailyLossPercent  = 4.0;         // Max Daily Loss (%)
@@ -2100,6 +2868,7 @@ CStrategySM             g_strategySM;
 CStrategyUniT           g_strategyUniT;
 CStrategyConflictManager g_conflictManager;
 CRiskEngine             g_riskEngine;
+CSelfOptimizer          g_selfOptimizer;
 CExecutionEngine        g_execution;
 CPositionManager        g_positionManager;
 
@@ -2119,7 +2888,7 @@ bool IsNewClosedBar()
 
 int OnInit()
 {
-   Print("Initializing Deterministic Standalone EA...");
+   Print("Initializing Deterministic Standalone EA with Self-Optimization...");
    if(!g_indicators.Init(_Symbol, InpStrategyTimeframe, 14)) return INIT_FAILED;
    g_structure.Init(_Symbol, InpStrategyTimeframe, InpSwingLeftBars, InpSwingRightBars, InpBosBufferAtrMult);
    g_sdEngine.Init(_Symbol, InpStrategyTimeframe, InpZoneDepartureAtrMult, 30);
@@ -2127,6 +2896,8 @@ int OnInit()
    g_strategySM.Init(_Symbol, InpStrategyTimeframe, InpBaseRiskPercent, InpSMZoneApproachAtr);
    g_strategyUniT.Init(_Symbol, InpStrategyTimeframe, InpEnableUniT_CP, InpEnableUniT_Moving, InpUniTBaseRiskPercent, InpUniTCP_LastPivotSL, InpUniTCP_PivotBufferAtr, InpUniTMoving_BehindEmaSL, InpUniTMoving_BehindEmaBuf);
    g_riskEngine.Init(InpBaseRiskPercent, InpMaxDailyLossPercent, InpHardKillThreshold, InpMinRiskRewardRatio, InpMaxSpreadPoints, InpEnableEODFlat, InpEODCloseHour, InpEODCloseMinute, InpTpMode, InpManualTpMultiple);
+   g_selfOptimizer.Init(_Symbol, InpStrategyTimeframe, InpSelfOptCore, InpSelfOptMode, InpSelfOptRollingTrades, InpSelfOptMinEvalTrades, InpSelfOptAdaptiveVol, InpSelfOptAdaptiveWeight, InpSelfOptAdaptiveTp);
+   g_riskEngine.SetSelfOptimizer(&g_selfOptimizer);
    return INIT_SUCCEEDED;
 }
 
@@ -2144,11 +2915,16 @@ void OnTick()
    double currentAtr = g_indicators.GetATR(1);
    if(currentAtr <= 0.0) currentAtr = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 20.0;
 
+   // Update Self-Optimizer Volatility & Adaptive Buffers
+   g_selfOptimizer.UpdateRegime(g_indicators);
+   double effectiveAtr = currentAtr * g_selfOptimizer.GetBufferScalar();
+   Comment(g_selfOptimizer.GetTelemetryString());
+
    CandleMetrics closedCandle;
    if(!g_candleEngine.Analyze(_Symbol, InpStrategyTimeframe, 1, currentAtr, closedCandle)) return;
 
-   g_structure.Update(currentAtr, 120);
-   g_sdEngine.Update(currentAtr, g_candleEngine);
+   g_structure.Update(effectiveAtr, 120);
+   g_sdEngine.Update(effectiveAtr, g_candleEngine);
    ENUM_MARKET_TREND marketTrend = g_trendEngine.Evaluate(_Symbol, InpStrategyTimeframe, g_indicators, g_structure, g_sdEngine, currentAtr);
 
    TradeSignal candidates[3];
@@ -2198,11 +2974,28 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
 {
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
    {
-      if(HistoryDealSelect(trans.deal))
+      ulong dealTicket = trans.deal;
+      if(HistoryDealSelect(dealTicket))
       {
-         long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+         long entry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
          if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_INOUT)
-            g_riskEngine.OnTradeClosed(HistoryDealGetDouble(trans.deal, DEAL_PROFIT));
+         {
+            double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+            g_riskEngine.OnTradeClosed(profit);
+
+            long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+            ENUM_STRATEGY_TYPE strat = STRATEGY_NONE;
+            if(magic >= InpBaseMagicNumber && magic <= InpBaseMagicNumber + 500)
+            {
+               int stratId = (int)((magic - InpBaseMagicNumber) / 100);
+               if(stratId >= 1 && stratId <= 4)
+                  strat = (ENUM_STRATEGY_TYPE)stratId;
+            }
+
+            double riskDollars = MathMax(1.0, AccountInfoDouble(ACCOUNT_EQUITY) * (InpBaseRiskPercent / 100.0));
+            double rMult = (profit >= 0.0) ? (profit / riskDollars) : -1.0;
+            g_selfOptimizer.OnTradeClosed(strat, profit, rMult);
+         }
       }
    }
 }

@@ -75,6 +75,7 @@ enum ENUM_STRATEGY_TYPE
 #include "..\\Include\\Deterministic\\StrategyUniT.mqh"
 #include "..\\Include\\Deterministic\\ConflictManager.mqh"
 #include "..\\Include\\Deterministic\\RiskEngine.mqh"
+#include "..\\Include\\Deterministic\\SelfOptimizer.mqh"
 #include "..\\Include\\Deterministic\\ExecutionEngine.mqh"
 #include "..\\Include\\Deterministic\\PositionManager.mqh"
 #include "..\\Include\\Deterministic\\Visualizer.mqh"
@@ -155,5 +156,55 @@ void CMarketStructureEngine::Update(const double currentAtr, const int lookbackB
 // Auto: EA dynamically assigns TP (2R, 1.8R, 1.5R, 2.5R per strategy)
 // Manual: User chooses fixed TP size for all signals (1R, 2R, 3R, etc.)
 void ApplyTakeProfit(TradeSignal &signal);`
+  },
+  {
+    name: 'SelfOptimizer.mqh',
+    path: 'MQL5/Include/Deterministic/SelfOptimizer.mqh',
+    category: 'include',
+    description: 'Dual-Engine Self-Optimizer: Option 1: Classic Quant (Rolling Attribution & Statistical Thresholds) vs Option 2: Smart Neural Network (Native 6x8x6x4 MLP & Online Backpropagation).',
+    code: `//+------------------------------------------------------------------+
+//|                                                 SelfOptimizer.mqh|
+//|               Deterministic Self-Optimization & Attribution Engine|
+//|        Option 1: Classic Quant Optimization (Rolling Attribution)|
+//|        Option 2: Smart Neural Network (MLP & Online Learning)    |
+//|                                  Copyright 2026, Quant Systems   |
+//+------------------------------------------------------------------+
+#property copyright "Quant Systems"
+#property strict
+
+#include "Defines.mqh"
+#include "Indicators.mqh"
+
+// Option 2: Native Deep Neural Network / Multi-Layer Perceptron (MLP)
+// Topology: 6 Inputs -> 8 Hidden-1 (Tanh) -> 6 Hidden-2 (Tanh) -> 4 Outputs (Sigmoid)
+class CNeuralOptimizerNet
+{
+   void Forward(const double &inputs[], double &outputs[]);
+   void TrainStep(const double actualProfit, const double actualRMultiple);
+};
+
+// Master Self-Optimizer Class with Dual Core Dispatch
+class CSelfOptimizer
+{
+public:
+   // Mode Selection: OPT_CORE_CLASSIC vs OPT_CORE_NEURAL
+   bool Init(const string symbol, const ENUM_TIMEFRAMES tf,
+             const ENUM_OPTIMIZER_CORE coreType = OPT_CORE_CLASSIC,
+             const ENUM_SELF_OPT_MODE mode = SELF_OPT_ADAPTIVE, ...);
+
+   // Adaptive Risk Weights (Classic: 0.50x-1.20x | Neural: 0.30x-1.40x)
+   double GetStrategyRiskWeight(const ENUM_STRATEGY_TYPE strategy);
+
+   // Volatility Corridor Buffer Scaling
+   void UpdateRegime(const CIndicatorEngine &indicators);
+   double GetBufferScalar() const;
+
+   // Auto-TP Optimization (Classic: WR & PF rules | Neural: Continuous R regression)
+   double GetOptimalTpMultiple(const ENUM_STRATEGY_TYPE strategy, const double baseTp);
+
+   // Online Event Handler for Closed Deals
+   void OnTradeClosed(const ENUM_STRATEGY_TYPE strategy, const double profit, const double rMult);
+   string GetTelemetryString() const;
+};`
   }
 ];

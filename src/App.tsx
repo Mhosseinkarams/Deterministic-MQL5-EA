@@ -22,7 +22,17 @@ import {
   Sliders,
   Compass,
   Zap,
-  Info
+  Info,
+  Sparkles,
+  RefreshCw,
+  BarChart3,
+  Gauge,
+  Award,
+  Scale,
+  Brain,
+  Binary,
+  GitBranch,
+  Network
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { MQL_FILES, CodeFile } from './data/mqlCode';
@@ -30,8 +40,115 @@ import { SCENARIOS, Scenario, SimCandle } from './data/simulatorData';
 import { VERIFICATION_TESTS, VerificationTest } from './data/testsData';
 import { DOCS_ARTICLES, DocArticle } from './data/docsContent';
 
+export interface StrategyTally {
+  strategyKey: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving';
+  name: string;
+  magic: string;
+  wins: number;
+  losses: number;
+  grossProfit: number;
+  grossLoss: number;
+  sumR: number;
+  consecutiveLosses: number;
+}
+
+export interface SimTradeLogItem {
+  id: number;
+  time: string;
+  strategyKey: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving';
+  isWin: boolean;
+  profit: number;
+  rMultiple: number;
+}
+
+// Native Neural Network MLP Constants matching MQL5 CNeuralOptimizerNet (6-8-6-4)
+const INITIAL_NN_W1: number[][] = [
+  [ 0.32, -0.21,  0.45, -0.15,  0.28, -0.35,  0.18,  0.22],
+  [ 0.40,  0.35, -0.25,  0.30, -0.18,  0.27, -0.32,  0.15],
+  [ 0.55, -0.42,  0.38,  0.48, -0.22,  0.31, -0.19,  0.41],
+  [ 0.28,  0.19, -0.33,  0.25,  0.41, -0.28,  0.35, -0.12],
+  [-0.45,  0.38, -0.50, -0.35,  0.29, -0.41,  0.22, -0.38],
+  [ 0.15, -0.18,  0.22, -0.12,  0.33, -0.25,  0.19,  0.30]
+];
+const INITIAL_NN_B1: number[] = [0.05, -0.05, 0.05, -0.05, 0.05, -0.05, 0.05, -0.05];
+
+const INITIAL_NN_W2: number[][] = [
+  [ 0.35, -0.28,  0.42, -0.19,  0.31, -0.22],
+  [-0.25,  0.33, -0.18,  0.41, -0.30,  0.26],
+  [ 0.48, -0.35,  0.29, -0.22,  0.37, -0.15],
+  [-0.19,  0.27, -0.38,  0.33, -0.25,  0.42],
+  [ 0.31, -0.22,  0.45, -0.29,  0.18, -0.35],
+  [-0.42,  0.38, -0.25,  0.31, -0.40,  0.28],
+  [ 0.22, -0.15,  0.33, -0.28,  0.25, -0.19],
+  [ 0.29,  0.31, -0.22,  0.35, -0.18,  0.25]
+];
+const INITIAL_NN_B2: number[] = [0.02, -0.02, 0.02, -0.02, 0.02, -0.02];
+
+const INITIAL_NN_W3: number[][] = [
+  [ 0.52,  0.45,  0.38, -0.25],
+  [-0.38, -0.32, -0.29,  0.35],
+  [ 0.44,  0.48,  0.41, -0.18],
+  [-0.49, -0.42, -0.35,  0.42],
+  [ 0.35,  0.28,  0.33, -0.22],
+  [-0.28, -0.25, -0.19,  0.31]
+];
+const INITIAL_NN_B3: number[] = [0.0, 0.0, 0.0, 0.0];
+
+const nnSigmoid = (x: number) => {
+  if (x < -45) return 0;
+  if (x > 45) return 1;
+  return 1 / (1 + Math.exp(-x));
+};
+
+const INITIAL_STRATEGY_TALLIES: StrategyTally[] = [
+  {
+    strategyKey: 'MM',
+    name: 'MM (Trend Following)',
+    magic: '90100-90103',
+    wins: 6,
+    losses: 2,
+    grossProfit: 1200,
+    grossLoss: 400,
+    sumR: 12.5,
+    consecutiveLosses: 0
+  },
+  {
+    strategyKey: 'SM',
+    name: 'SM (Stubborn Man Range)',
+    magic: '90201',
+    wins: 2,
+    losses: 4,
+    grossProfit: 380,
+    grossLoss: 800,
+    sumR: 3.1,
+    consecutiveLosses: 3
+  },
+  {
+    strategyKey: 'UniT_CP',
+    name: 'UniT CP (Retest & Last Pivot)',
+    magic: '90301',
+    wins: 4,
+    losses: 1,
+    grossProfit: 850,
+    grossLoss: 200,
+    sumR: 8.2,
+    consecutiveLosses: 0
+  },
+  {
+    strategyKey: 'UniT_Moving',
+    name: 'UniT Moving (Behind EMA21)',
+    magic: '90401-90402',
+    wins: 3,
+    losses: 3,
+    grossProfit: 540,
+    grossLoss: 480,
+    sumR: 5.4,
+    consecutiveLosses: 1
+  }
+];
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'architecture' | 'simulator' | 'code' | 'risk' | 'tests' | 'docs'>('architecture');
+  const [activeTab, setActiveTab] = useState<'architecture' | 'simulator' | 'optimizer' | 'code' | 'risk' | 'tests' | 'docs'>('architecture');
   const [selectedFile, setSelectedFile] = useState<CodeFile>(MQL_FILES[0]);
   const [copied, setCopied] = useState(false);
   const [downloadingZip, setDownloadingZip] = useState(false);
@@ -40,6 +157,45 @@ export default function App() {
   const [activeScenario, setActiveScenario] = useState<Scenario>(SCENARIOS[0]);
   const [stepIndex, setStepIndex] = useState<number>(activeScenario.candles.length - 1);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+
+  // Dual Self-Optimizer Core Selection: Option 1 (Classic Quant) vs Option 2 (Smart Neural Network)
+  const [optCore, setOptCore] = useState<'OPT_CORE_CLASSIC' | 'OPT_CORE_NEURAL'>('OPT_CORE_CLASSIC');
+  const [calcOptCore, setCalcOptCore] = useState<'OPT_CORE_CLASSIC' | 'OPT_CORE_NEURAL'>('OPT_CORE_CLASSIC');
+  const [optMode, setOptMode] = useState<'SELF_OPT_ADAPTIVE' | 'SELF_OPT_AGGRESSIVE' | 'SELF_OPT_DISABLED'>('SELF_OPT_ADAPTIVE');
+  const [optRollingCapacity, setOptRollingCapacity] = useState<number>(30);
+  const [optMinEvalTrades, setOptMinEvalTrades] = useState<number>(4);
+  const [optEnableVol, setOptEnableVol] = useState<boolean>(true);
+  const [optEnableWeights, setOptEnableWeights] = useState<boolean>(true);
+  const [optEnableTp, setOptEnableTp] = useState<boolean>(true);
+  const [strategyTallies, setStrategyTallies] = useState<StrategyTally[]>(INITIAL_STRATEGY_TALLIES);
+  const [simulatedAtr14, setSimulatedAtr14] = useState<number>(0.0018);
+  const [simulatedBaselineAtr, setSimulatedBaselineAtr] = useState<number>(0.0014);
+  const [selectedCalcStrategy, setSelectedCalcStrategy] = useState<'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving'>('MM');
+
+  // Neural Network Synaptic Weights & Online Training State (6 -> 8 -> 6 -> 4)
+  const [nnW1, setNnW1] = useState<number[][]>(INITIAL_NN_W1.map(r => [...r]));
+  const [nnB1, setNnB1] = useState<number[]>([...INITIAL_NN_B1]);
+  const [nnW2, setNnW2] = useState<number[][]>(INITIAL_NN_W2.map(r => [...r]));
+  const [nnB2, setNnB2] = useState<number[]>([...INITIAL_NN_B2]);
+  const [nnW3, setNnW3] = useState<number[][]>(INITIAL_NN_W3.map(r => [...r]));
+  const [nnB3, setNnB3] = useState<number[]>([...INITIAL_NN_B3]);
+  const [nnPrevDw1, setNnPrevDw1] = useState<number[][]>(Array(6).fill(0).map(() => Array(8).fill(0)));
+  const [nnPrevDw2, setNnPrevDw2] = useState<number[][]>(Array(8).fill(0).map(() => Array(6).fill(0)));
+  const [nnPrevDw3, setNnPrevDw3] = useState<number[][]>(Array(6).fill(0).map(() => Array(4).fill(0)));
+  const [nnEpochs, setNnEpochs] = useState<number>(18);
+  const [nnLoss, setNnLoss] = useState<number>(0.0194);
+  const [nnLearningRate, setNnLearningRate] = useState<number>(0.05);
+  const [inspectStrategy, setInspectStrategy] = useState<'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving'>('MM');
+  const [showWeightMatrix, setShowWeightMatrix] = useState<boolean>(false);
+
+  const [recentTradesHistory, setRecentTradesHistory] = useState<SimTradeLogItem[]>([
+    { id: 1, time: '12:05', strategyKey: 'MM', isWin: true, profit: 200, rMultiple: 2.0 },
+    { id: 2, time: '12:20', strategyKey: 'SM', isWin: false, profit: -100, rMultiple: -1.0 },
+    { id: 3, time: '12:35', strategyKey: 'SM', isWin: false, profit: -100, rMultiple: -1.0 },
+    { id: 4, time: '12:50', strategyKey: 'SM', isWin: false, profit: -100, rMultiple: -1.0 },
+    { id: 5, time: '13:05', strategyKey: 'UniT_CP', isWin: true, profit: 240, rMultiple: 2.4 },
+    { id: 6, time: '13:20', strategyKey: 'MM', isWin: true, profit: 200, rMultiple: 2.0 }
+  ]);
 
   // Calculator state
   const [calcEquity, setCalcEquity] = useState<number>(10000);
@@ -119,11 +275,268 @@ export default function App() {
     }
   };
 
-  // Calculate lot size
+  // Self-Optimizer helper methods
+  const getStrategyMetrics = (strategyKey: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving') => {
+    const tally = strategyTallies.find(s => s.strategyKey === strategyKey) || strategyTallies[0];
+    const totalTrades = tally.wins + tally.losses;
+    const winRate = totalTrades > 0 ? (tally.wins / totalTrades) * 100 : 50.0;
+    const profitFactor = tally.grossLoss > 0 ? (tally.grossProfit / tally.grossLoss) : (tally.grossProfit > 0 ? 5.0 : 1.0);
+    const avgR = totalTrades > 0 ? tally.sumR / totalTrades : 1.5;
+    const score = (winRate * 0.4) + (Math.min(profitFactor, 3.0) * 20.0);
+
+    const isOnProbation = totalTrades >= optMinEvalTrades && optEnableWeights && optMode !== 'SELF_OPT_DISABLED' &&
+      (profitFactor < 0.80 || winRate < 35.0 || tally.consecutiveLosses >= 3);
+
+    const isHighEdge = totalTrades >= optMinEvalTrades && optEnableWeights && optMode !== 'SELF_OPT_DISABLED' &&
+      (profitFactor >= 1.60 && winRate >= 58.0);
+
+    let riskWeight = 1.0;
+    if (optMode !== 'SELF_OPT_DISABLED' && optEnableWeights && totalTrades >= optMinEvalTrades) {
+      if (isOnProbation) riskWeight = optMode === 'SELF_OPT_AGGRESSIVE' ? 0.35 : 0.50;
+      else if (isHighEdge) riskWeight = optMode === 'SELF_OPT_AGGRESSIVE' ? 1.30 : 1.20;
+    }
+
+    let optimalTp = 2.0;
+    if (strategyKey === 'UniT_Moving') optimalTp = 1.8;
+    if (optMode !== 'SELF_OPT_DISABLED' && optEnableTp && totalTrades >= optMinEvalTrades) {
+      if (winRate >= 60.0 && avgR >= 1.8) optimalTp = Math.min(optimalTp + 0.4, 3.0);
+      else if (winRate < 45.0 || profitFactor < 1.1) optimalTp = Math.max(optimalTp - 0.3, 1.4);
+    }
+
+    return {
+      tally,
+      totalTrades,
+      winRate,
+      profitFactor,
+      avgR,
+      score,
+      isOnProbation,
+      isHighEdge,
+      riskWeight,
+      optimalTp
+    };
+  };
+
+  const volRatio = simulatedBaselineAtr > 0 ? simulatedAtr14 / simulatedBaselineAtr : 1.0;
+  const isCompressionRegime = volRatio < 0.75;
+  const isExpansionRegime = volRatio > 1.35;
+  const bufferScalar = (!optEnableVol || optMode === 'SELF_OPT_DISABLED')
+    ? 1.00
+    : isCompressionRegime
+      ? 0.85
+      : isExpansionRegime
+        ? (optMode === 'SELF_OPT_AGGRESSIVE' ? 1.35 : 1.25)
+        : 1.00;
+
+  // Neural Network Forward Inference Pass (Option 2: Smart Neural Network)
+  const getNeuralMetrics = (strategyKey: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving') => {
+    const classic = getStrategyMetrics(strategyKey);
+
+    // 6 Real-time normalized input features matching MQL5 BuildNeuralFeatureVector
+    const x0 = Math.max(-1.0, Math.min(1.0, volRatio - 1.0));
+    const x1 = isExpansionRegime ? 0.8 : isCompressionRegime ? -0.8 : 0.0;
+    const x2 = Math.max(-1.0, Math.min(1.0, (classic.winRate / 50.0) - 1.0));
+    const x3 = Math.max(-1.0, Math.min(1.0, (Math.min(classic.profitFactor, 3.0) / 1.5) - 1.0));
+    const x4 = Math.max(-1.0, Math.min(1.0, (Math.min(classic.tally.consecutiveLosses, 5) / 2.5) - 1.0));
+    const x5 = Math.max(-1.0, Math.min(1.0, (classic.avgR / 1.5) - 1.0));
+    const inputs = [x0, x1, x2, x3, x4, x5];
+
+    // Layer 1: 6 -> 8 (Tanh Activation)
+    const h1 = new Array(8).fill(0);
+    for (let j = 0; j < 8; j++) {
+      let sum = nnB1[j];
+      for (let i = 0; i < 6; i++) sum += inputs[i] * nnW1[i][j];
+      h1[j] = Math.tanh(sum);
+    }
+
+    // Layer 2: 8 -> 6 (Tanh Activation)
+    const h2 = new Array(6).fill(0);
+    for (let k = 0; k < 6; k++) {
+      let sum = nnB2[k];
+      for (let j = 0; j < 8; j++) sum += h1[j] * nnW2[j][k];
+      h2[k] = Math.tanh(sum);
+    }
+
+    // Layer 3: 6 -> 4 (Sigmoid Activation)
+    const outRaw = new Array(4).fill(0);
+    for (let m = 0; m < 4; m++) {
+      let sum = nnB3[m];
+      for (let k = 0; k < 6; k++) sum += h2[k] * nnW3[k][m];
+      outRaw[m] = nnSigmoid(sum);
+    }
+
+    // Domain Scaling matching MQL5 CNeuralOptimizerNet::Forward
+    const predictedRiskWeight = Math.round((0.30 + 1.10 * outRaw[0]) * 100) / 100;
+    const winConfidence = outRaw[1];
+    const predictedTp = Math.round((1.40 + 1.60 * outRaw[2]) * 10) / 10;
+    const neuralBufferScalar = Math.round((0.80 + 0.55 * outRaw[3]) * 100) / 100;
+
+    return {
+      inputs,
+      h1,
+      h2,
+      outRaw,
+      predictedRiskWeight,
+      winConfidence,
+      predictedTp,
+      neuralBufferScalar
+    };
+  };
+
+  // Online Supervised Backpropagation Learning (Gradient Descent with Momentum)
+  const trainNeuralStep = (actualProfit: number, actualR: number, stratKey?: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving') => {
+    const isWin = actualProfit > 0;
+    const curMetrics = getNeuralMetrics(stratKey || selectedCalcStrategy);
+    const targetSig = [
+      isWin ? (1.20 - 0.30) / 1.10 : (0.50 - 0.30) / 1.10,
+      isWin ? 1.0 : 0.0,
+      Math.max(0, Math.min(1, (Math.max(1.4, actualR) - 1.40) / 1.60)),
+      (1.00 - 0.80) / 0.55
+    ];
+
+    // 1. Output deltas & MSE loss
+    let loss = 0;
+    const dOut = new Array(4).fill(0);
+    for (let m = 0; m < 4; m++) {
+      const err = curMetrics.outRaw[m] - targetSig[m];
+      loss += err * err;
+      dOut[m] = err * curMetrics.outRaw[m] * (1.0 - curMetrics.outRaw[m]);
+    }
+    loss /= 4.0;
+
+    // 2. Hidden 2 deltas
+    const dH2 = new Array(6).fill(0);
+    for (let k = 0; k < 6; k++) {
+      let sum = 0;
+      for (let m = 0; m < 4; m++) sum += dOut[m] * nnW3[k][m];
+      dH2[k] = sum * (1.0 - curMetrics.h2[k] * curMetrics.h2[k]);
+    }
+
+    // 3. Hidden 1 deltas
+    const dH1 = new Array(8).fill(0);
+    for (let j = 0; j < 8; j++) {
+      let sum = 0;
+      for (let k = 0; k < 6; k++) sum += dH2[k] * nnW2[j][k];
+      dH1[j] = sum * (1.0 - curMetrics.h1[j] * curMetrics.h1[j]);
+    }
+
+    const momentum = 0.10;
+    const nextW3 = nnW3.map(r => [...r]);
+    const nextPrevDw3 = nnPrevDw3.map(r => [...r]);
+    for (let k = 0; k < 6; k++) {
+      for (let m = 0; m < 4; m++) {
+        const grad = dOut[m] * curMetrics.h2[k];
+        const dw = -(nnLearningRate * grad) + (momentum * nnPrevDw3[k][m]);
+        nextW3[k][m] += dw;
+        nextPrevDw3[k][m] = dw;
+      }
+    }
+    const nextB3 = nnB3.map((b, m) => b - nnLearningRate * dOut[m]);
+
+    const nextW2 = nnW2.map(r => [...r]);
+    const nextPrevDw2 = nnPrevDw2.map(r => [...r]);
+    for (let j = 0; j < 8; j++) {
+      for (let k = 0; k < 6; k++) {
+        const grad = dH2[k] * curMetrics.h1[j];
+        const dw = -(nnLearningRate * grad) + (momentum * nnPrevDw2[j][k]);
+        nextW2[j][k] += dw;
+        nextPrevDw2[j][k] = dw;
+      }
+    }
+    const nextB2 = nnB2.map((b, k) => b - nnLearningRate * dH2[k]);
+
+    const nextW1 = nnW1.map(r => [...r]);
+    const nextPrevDw1 = nnPrevDw1.map(r => [...r]);
+    for (let i = 0; i < 6; i++) {
+      for (let j = 0; j < 8; j++) {
+        const grad = dH1[j] * curMetrics.inputs[i];
+        const dw = -(nnLearningRate * grad) + (momentum * nnPrevDw1[i][j]);
+        nextW1[i][j] += dw;
+        nextPrevDw1[i][j] = dw;
+      }
+    }
+    const nextB1 = nnB1.map((b, j) => b - nnLearningRate * dH1[j]);
+
+    setNnW1(nextW1); setNnB1(nextB1); setNnPrevDw1(nextPrevDw1);
+    setNnW2(nextW2); setNnB2(nextB2); setNnPrevDw2(nextPrevDw2);
+    setNnW3(nextW3); setNnB3(nextB3); setNnPrevDw3(nextPrevDw3);
+    setNnLoss(Math.round(loss * 10000) / 10000);
+    setNnEpochs(prev => prev + 1);
+  };
+
+  const handleResetNeuralNet = () => {
+    setNnW1(INITIAL_NN_W1.map(r => [...r]));
+    setNnB1([...INITIAL_NN_B1]);
+    setNnW2(INITIAL_NN_W2.map(r => [...r]));
+    setNnB2([...INITIAL_NN_B2]);
+    setNnW3(INITIAL_NN_W3.map(r => [...r]));
+    setNnB3([...INITIAL_NN_B3]);
+    setNnPrevDw1(Array(6).fill(0).map(() => Array(8).fill(0)));
+    setNnPrevDw2(Array(8).fill(0).map(() => Array(6).fill(0)));
+    setNnPrevDw3(Array(6).fill(0).map(() => Array(4).fill(0)));
+    setNnEpochs(0);
+    setNnLoss(0.0425);
+  };
+
+  const handleTrainBatch = (count: number = 5) => {
+    for (let i = 0; i < count; i++) {
+      const isWin = Math.random() > 0.4;
+      const rMult = isWin ? 1.5 + Math.random() * 1.5 : -1.0;
+      trainNeuralStep(isWin ? 200 : -100, rMult);
+    }
+  };
+
+  // Handle live trade injection (updates BOTH Classic Ring Buffer AND Smart Neural Net)
+  const handleInjectTrade = (strategyKey: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving', isWin: boolean, rMultiple: number) => {
+    const riskDollars = calcEquity * (calcRiskPct / 100);
+    const profit = isWin ? riskDollars * rMultiple : -riskDollars;
+
+    // 1. Classic Quantitative Ring Buffer Update
+    setStrategyTallies(prev => prev.map(item => {
+      if (item.strategyKey !== strategyKey) return item;
+      return {
+        ...item,
+        wins: item.wins + (isWin ? 1 : 0),
+        losses: item.losses + (isWin ? 0 : 1),
+        grossProfit: item.grossProfit + (isWin ? profit : 0),
+        grossLoss: item.grossLoss + (!isWin ? Math.abs(profit) : 0),
+        sumR: item.sumR + (isWin ? rMultiple : -1.0),
+        consecutiveLosses: isWin ? 0 : item.consecutiveLosses + 1
+      };
+    }));
+
+    // 2. Smart Neural Network Online Backpropagation Step
+    trainNeuralStep(profit, isWin ? rMultiple : -1.0, strategyKey);
+
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    setRecentTradesHistory(prev => [
+      { id: Date.now(), time: timeStr, strategyKey, isWin, profit, rMultiple: isWin ? rMultiple : -1.0 },
+      ...prev.slice(0, optRollingCapacity - 1)
+    ]);
+  };
+
+  const handleResetOptimizerTrades = () => {
+    setStrategyTallies(INITIAL_STRATEGY_TALLIES);
+  };
+
+  // Calculate lot size taking into account Active Self-Optimizer Core (Classic vs Neural)
   const calculateLots = () => {
-    const riskMoney = calcEquity * ((consecLosses >= 3 ? 0.5 : calcRiskPct) / 100);
+    const stratMetrics = getStrategyMetrics(selectedCalcStrategy);
+    const neuralMetrics = getNeuralMetrics(selectedCalcStrategy);
+    const baseEffectiveRisk = consecLosses >= 3 ? 0.5 : calcRiskPct;
+
+    const activeCore = (activeTab === 'risk') ? calcOptCore : optCore;
+    const activeRiskWeight = (optMode === 'SELF_OPT_DISABLED' || !optEnableWeights)
+      ? 1.00
+      : (activeCore === 'OPT_CORE_NEURAL')
+        ? neuralMetrics.predictedRiskWeight
+        : stratMetrics.riskWeight;
+
+    const finalRiskPct = baseEffectiveRisk * activeRiskWeight;
+    const riskMoney = calcEquity * (finalRiskPct / 100);
     const slDist = Math.abs(calcEntry - calcSL);
-    if (slDist <= 0) return { lots: 0, riskMoney, lossPerLot: 0 };
+    if (slDist <= 0) return { lots: 0, riskMoney, lossPerLot: 0, finalRiskPct, stratMetrics, neuralMetrics, activeRiskWeight, activeCore };
 
     let tickSize = 0.00001;
     let tickValue = 1.0;
@@ -142,7 +555,7 @@ export default function App() {
     const lossPerLot = ticks * tickValue;
     const rawLots = lossPerLot > 0 ? riskMoney / lossPerLot : 0;
     const normalizedLots = Math.max(0.01, Math.min(100.0, Math.floor(rawLots * 100) / 100));
-    return { lots: normalizedLots, riskMoney, lossPerLot };
+    return { lots: normalizedLots, riskMoney, lossPerLot, finalRiskPct, stratMetrics, neuralMetrics, activeRiskWeight, activeCore };
   };
 
   const lotCalc = calculateLots();
@@ -159,11 +572,12 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold text-slate-50 tracking-tight">Deterministic MQL5 EA Studio</h1>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  Pure Rules • Zero AI/ML
+                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
+                  <Brain className="w-3 h-3 text-indigo-400" />
+                  Dual-Core: Classic Quant + Smart Neural MLP
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Hard-coded: MM (Trend) • SM (Stubborn Man) • UniT (CP & Moving)</p>
+              <p className="text-xs text-slate-400">Hard-coded: MM (Trend) • SM (Stubborn Man) • UniT (CP & Moving) • CSelfOptimizer</p>
             </div>
           </div>
 
@@ -193,9 +607,10 @@ export default function App() {
           {[
             { id: 'architecture', label: 'Architecture & Pipeline', icon: Layers },
             { id: 'simulator', label: 'Interactive Simulator', icon: Activity },
+            { id: 'optimizer', label: 'Self-Optimizer Engine', icon: Sparkles },
             { id: 'code', label: 'MQL5 Code Explorer', icon: Code2 },
             { id: 'risk', label: 'Risk & Sizing Engine', icon: Calculator },
-            { id: 'tests', label: 'Verification Matrix (26)', icon: CheckCircle2 },
+            { id: 'tests', label: `Verification Matrix (${tests.length})`, icon: CheckCircle2 },
             { id: 'docs', label: 'Technical Documentation', icon: BookOpen }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -254,7 +669,7 @@ export default function App() {
                 End-to-End Execution Sequence
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5">
                 {/* Step 1 */}
                 <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col justify-between">
                   <div>
@@ -315,11 +730,28 @@ export default function App() {
                     </div>
                     <h4 className="font-bold text-slate-200 text-sm">Conflict Manager & Risk</h4>
                     <p className="text-xs text-slate-400 mt-1">
-                      Blocks trend setups in Range; blocks SM in Trend. Validates 4.0% daily limit, 3.8% kill switch, 1 position per symbol, and computes exact lots.
+                      Blocks trend in Range; blocks SM in Trend. Validates 4.0% daily limit, 3.8% kill switch, 1 pos/symbol, and lot sizing.
                     </p>
                   </div>
                   <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] font-mono text-cyan-400">
-                    ConflictManager.mqh • RiskEngine.mqh
+                    ConflictManager • RiskEngine
+                  </div>
+                </div>
+
+                {/* Step 5 */}
+                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                      <span className="font-mono text-cyan-400">STAGE 05</span>
+                      <span className="px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-400 border border-cyan-800/50 text-[10px]">Dual Self-Opt</span>
+                    </div>
+                    <h4 className="font-bold text-slate-200 text-sm">Dual-Core Self-Optimizer</h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Option 1: Classic Quant attribution (0.50x probation / 1.20x edge) or Option 2: Smart Neural Network (Native 6x8x6x4 MLP & online backpropagation).
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] font-mono text-cyan-400">
+                    SelfOptimizer.mqh
                   </div>
                 </div>
               </div>
@@ -718,7 +1150,1118 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 3: MQL5 CODE EXPLORER */}
+        {/* TAB 3: SELF-OPTIMIZER ENGINE */}
+        {/* ========================================================================= */}
+        {activeTab === 'optimizer' && (
+          <div className="space-y-6">
+            {/* Dual Core Mode Switcher Hero */}
+            <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/40 border border-slate-800 shadow-xl space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Deterministic Quantitative Self-Tuning
+                    </span>
+                    <span className="px-2 py-0.5 text-xs font-mono rounded bg-slate-800 text-slate-300">
+                      CSelfOptimizer.mqh
+                    </span>
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-100 mt-2 flex items-center gap-2">
+                    Self-Optimizing Algorithmic Engine: Dual-Core Architecture
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                    Dynamically adapts strategy risk weights, volatility corridors, and Take Profit targets based on real market outcomes.
+                    Choose between <strong className="text-cyan-400">Option 1: Classic Quant Optimization</strong> (statistical attribution & probation) or <strong className="text-indigo-400">Option 2: Smart Neural Network</strong> (on-device 6-8-6-4 MLP with online backpropagation).
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="bg-slate-950 p-1 rounded-xl border border-slate-800 flex items-center gap-1">
+                    {[
+                      { id: 'SELF_OPT_ADAPTIVE', label: 'Adaptive (Standard)', desc: '0.50x probation / 1.20x edge' },
+                      { id: 'SELF_OPT_AGGRESSIVE', label: 'Aggressive (Rapid)', desc: '0.35x probation / 1.30x edge' },
+                      { id: 'SELF_OPT_DISABLED', label: 'Disabled (Static)', desc: '1.00x fixed baseline' }
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setOptMode(m.id as any)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          optMode === m.id
+                            ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                        }`}
+                        title={m.desc}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleResetOptimizerTrades}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                    title="Restore default test trade history"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Reset Memory</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* CORE SELECTOR CARDS: Option 1 vs Option 2 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                {/* Option 1: Classic Quant */}
+                <button
+                  onClick={() => setOptCore('OPT_CORE_CLASSIC')}
+                  className={`p-4 rounded-xl text-left border transition relative flex flex-col justify-between ${
+                    optCore === 'OPT_CORE_CLASSIC'
+                      ? 'bg-slate-950 border-cyan-500 ring-2 ring-cyan-500/30 shadow-lg shadow-cyan-950/40'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-950'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="flex items-center gap-2 font-bold text-sm text-slate-100">
+                      <BarChart3 className="w-4 h-4 text-cyan-400" />
+                      Option 1: Classic Quant Optimization
+                    </span>
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full font-mono ${
+                      optCore === 'OPT_CORE_CLASSIC'
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {optCore === 'OPT_CORE_CLASSIC' ? 'ACTIVE CORE' : 'OPT_CORE_CLASSIC'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Pure deterministic statistical attribution. Tracks rolling win rate and profit factor, penalizes consecutive loss streaks with a <strong className="text-rose-400">0.50x probation throttle</strong>, boosts edge to <strong className="text-emerald-400">1.20x</strong>, and scales discrete volatility corridors.
+                  </p>
+                  <div className="mt-3 flex items-center gap-3 text-[11px] font-mono text-cyan-400/90 pt-2 border-t border-slate-850">
+                    <span>• 100% Deterministic Rules</span>
+                    <span>• Discrete Probation</span>
+                    <span>• Zero Black Box</span>
+                  </div>
+                </button>
+
+                {/* Option 2: Smart Neural Network */}
+                <button
+                  onClick={() => setOptCore('OPT_CORE_NEURAL')}
+                  className={`p-4 rounded-xl text-left border transition relative flex flex-col justify-between ${
+                    optCore === 'OPT_CORE_NEURAL'
+                      ? 'bg-slate-950 border-indigo-500 ring-2 ring-indigo-500/30 shadow-lg shadow-indigo-950/40'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-950'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="flex items-center gap-2 font-bold text-sm text-slate-100">
+                      <Brain className="w-4 h-4 text-indigo-400" />
+                      Option 2: Smart Neural Network (MLP)
+                    </span>
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full font-mono ${
+                      optCore === 'OPT_CORE_NEURAL'
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {optCore === 'OPT_CORE_NEURAL' ? 'ACTIVE CORE' : 'OPT_CORE_NEURAL'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Native on-device Multi-Layer Perceptron (<strong className="text-indigo-300">6x8x6x4 MLP</strong>) executed in 100% native MT5 code. Performs continuous regression to predict risk weight (<strong className="text-slate-200">0.30x-1.40x</strong>), setup win confidence, and dynamic TP using <strong className="text-indigo-400">online backpropagation</strong>.
+                  </p>
+                  <div className="mt-3 flex items-center gap-3 text-[11px] font-mono text-indigo-400/90 pt-2 border-t border-slate-850">
+                    <span>• 6-8-6-4 Native Topology</span>
+                    <span>• Online Supervised SGD</span>
+                    <span>• Zero DLL/Python</span>
+                  </div>
+                </button>
+              </div>
+
+              {/* Dynamic Engine Configuration Controls */}
+              <div className="pt-4 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="font-medium">Rolling Window:</span>
+                    <span className="font-mono text-cyan-400 font-bold">{optRollingCapacity} Trades</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="50"
+                    step="5"
+                    value={optRollingCapacity}
+                    onChange={(e) => setOptRollingCapacity(Number(e.target.value))}
+                    className="w-full accent-cyan-500"
+                  />
+                  <div className="text-[10px] text-slate-500">InpSelfOptRollingTrades</div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="font-medium">Min Eval Trades:</span>
+                    <span className="font-mono text-cyan-400 font-bold">{optMinEvalTrades} Trades</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[2, 4, 6, 8].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setOptMinEvalTrades(n)}
+                        className={`py-1 rounded text-[11px] font-mono font-semibold transition ${
+                          optMinEvalTrades === n
+                            ? 'bg-cyan-600 text-white'
+                            : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-slate-500">InpSelfOptMinEvalTrades</div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2 col-span-1 md:col-span-2">
+                  <span className="font-medium text-slate-400 block mb-1">Active Optimization Modalities:</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={optEnableWeights}
+                        onChange={(e) => setOptEnableWeights(e.target.checked)}
+                        className="rounded accent-cyan-500"
+                      />
+                      <span>Strategy Weights</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={optEnableVol}
+                        onChange={(e) => setOptEnableVol(e.target.checked)}
+                        className="rounded accent-cyan-500"
+                      />
+                      <span>Volatility Corridor</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={optEnableTp}
+                        onChange={(e) => setOptEnableTp(e.target.checked)}
+                        className="rounded accent-cyan-500"
+                      />
+                      <span>Auto-TP Targets</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CONDITIONAL RENDER: OPT_CORE_NEURAL vs OPT_CORE_CLASSIC */}
+            {optCore === 'OPT_CORE_NEURAL' ? (
+              <div className="space-y-6">
+                {/* Neural Network Studio Header & Controls */}
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-500/30 shadow-xl space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5">
+                          <Brain className="w-3.5 h-3.5 text-indigo-400" />
+                          Option 2: Smart Neural Network Core
+                        </span>
+                        <span className="px-2 py-0.5 text-xs font-mono rounded bg-slate-800 text-slate-300">
+                          CNeuralOptimizerNet.mqh (6-8-6-4 MLP)
+                        </span>
+                      </div>
+                      <h3 className="text-base font-bold text-slate-100 mt-1 flex items-center gap-2">
+                        Native On-Device Multi-Layer Perceptron & Online Backpropagation
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Executes continuous non-linear regression using normalized market metrics. Adjusts weights in real time via Stochastic Gradient Descent with momentum.
+                      </p>
+                    </div>
+
+                    {/* Quick SGD Training Bar */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-3 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
+                        <div>Epochs: <span className="text-indigo-400 font-bold">{nnEpochs}</span></div>
+                        <div className="w-px h-4 bg-slate-800"></div>
+                        <div>Loss (MSE): <span className="text-emerald-400 font-bold">{nnLoss.toFixed(4)}</span></div>
+                        <div className="w-px h-4 bg-slate-800"></div>
+                        <div className="flex items-center gap-1 text-[11px]">
+                          <span className="text-slate-400">&eta;:</span>
+                          <span className="text-cyan-400 font-bold">{nnLearningRate}</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleTrainBatch(5)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 transition"
+                        title="Simulate 5 market outcomes and backpropagate gradients"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Train 5 Epochs</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleTrainBatch(20)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 transition"
+                        title="Run 20 online learning iterations"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Train 20 Epochs</span>
+                      </button>
+
+                      <button
+                        onClick={handleResetNeuralNet}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition"
+                        title="Reset synaptic weights to MQL5 initial weights"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Reset Net</span>
+                      </button>
+
+                      <button
+                        onClick={() => setShowWeightMatrix(!showWeightMatrix)}
+                        className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-xl border transition ${
+                          showWeightMatrix
+                            ? 'bg-indigo-950/80 border-indigo-500 text-indigo-200'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Network className="w-3.5 h-3.5" />
+                        <span>{showWeightMatrix ? 'Hide Weights' : 'View Weights'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Strategy Inspection Tabs for Neural Net */}
+                  <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-slate-400 font-medium">Inspect Strategy Feature Vector & Topology:</span>
+                    <div className="flex bg-slate-950 rounded-xl p-1 border border-slate-800 gap-1">
+                      {[
+                        { key: 'MM' as const, label: 'MM (Trend)' },
+                        { key: 'SM' as const, label: 'SM (Stubborn Man)' },
+                        { key: 'UniT_CP' as const, label: 'UniT CP (Retest)' },
+                        { key: 'UniT_Moving' as const, label: 'UniT Moving (EMA21)' }
+                      ].map((item) => (
+                        <button
+                          key={item.key}
+                          onClick={() => setInspectStrategy(item.key)}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                            inspectStrategy === item.key
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interactive 6-8-6-4 Multi-Layer Perceptron Topology Diagram */}
+                {(() => {
+                  const nn = getNeuralMetrics(inspectStrategy);
+                  const classic = getStrategyMetrics(inspectStrategy);
+                  const inputLabels = [
+                    { name: 'ATR Ratio', code: 'x0', val: nn.inputs[0], desc: 'Vol ratio centered around 1.0' },
+                    { name: 'Regime Score', code: 'x1', val: nn.inputs[1], desc: '+0.8 exp / -0.8 comp' },
+                    { name: 'Win Rate Dev', code: 'x2', val: nn.inputs[2], desc: 'WR deviation from 50%' },
+                    { name: 'Profit Factor', code: 'x3', val: nn.inputs[3], desc: 'PF normalized around 1.5' },
+                    { name: 'Loss Streak Pen', code: 'x4', val: nn.inputs[4], desc: 'Consecutive loss penalty' },
+                    { name: 'Avg Realized R', code: 'x5', val: nn.inputs[5], desc: 'Realized R momentum' }
+                  ];
+
+                  return (
+                    <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Network className="w-4 h-4 text-indigo-400" />
+                          <h4 className="text-sm font-bold text-slate-100 uppercase tracking-wider">
+                            Live Synaptic Topology & Layer Activations: {classic.tally.name}
+                          </h4>
+                        </div>
+                        <span className="text-xs font-mono text-slate-400">
+                          Forward Pass: Tanh(W1) &rarr; Tanh(W2) &rarr; Sigmoid(W3)
+                        </span>
+                      </div>
+
+                      {/* 4 Layers Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        {/* Layer 0: Inputs */}
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2 pb-1 border-b border-slate-850">
+                              <span className="font-mono text-cyan-400">LAYER 0: INPUTS (6)</span>
+                              <span className="text-[10px] text-slate-500">Normalized [-1, 1]</span>
+                            </div>
+                            <div className="space-y-2">
+                              {inputLabels.map((inp, idx) => (
+                                <div key={idx} className="p-2 rounded-lg bg-slate-900/80 border border-slate-850 text-xs">
+                                  <div className="flex justify-between items-center font-mono">
+                                    <span className="text-slate-300 font-semibold">{inp.name} ({inp.code}):</span>
+                                    <span className={`font-bold ${inp.val > 0 ? 'text-emerald-400' : inp.val < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                                      {inp.val > 0 ? `+${inp.val.toFixed(2)}` : inp.val.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                                    <div
+                                      className={`h-full ${inp.val >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                      style={{ width: `${Math.min(100, Math.abs(inp.val) * 100)}%` }}
+                                    ></div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-2 font-mono">
+                            Inputs dynamically fed from rolling market & trade statistics.
+                          </div>
+                        </div>
+
+                        {/* Layer 1: Hidden 1 (8 Neurons) */}
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2 pb-1 border-b border-slate-850">
+                              <span className="font-mono text-indigo-400">LAYER 1: HIDDEN (8)</span>
+                              <span className="text-[10px] text-slate-500">Activation: Tanh</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {nn.h1.map((val, idx) => (
+                                <div key={idx} className="p-1.5 px-2 rounded-lg bg-slate-900/60 border border-slate-850 flex items-center justify-between text-[11px] font-mono">
+                                  <span className="text-slate-400">h1[{idx}]</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-12 bg-slate-850 h-1.5 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full ${val >= 0 ? 'bg-indigo-400' : 'bg-amber-400'}`}
+                                        style={{ width: `${Math.min(100, Math.abs(val) * 100)}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className={`w-10 text-right ${val >= 0 ? 'text-indigo-300' : 'text-amber-300'}`}>
+                                      {val.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-2 font-mono">
+                            Weights: W1 (6x8) • Biases: B1 (8)
+                          </div>
+                        </div>
+
+                        {/* Layer 2: Hidden 2 (6 Neurons) */}
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2 pb-1 border-b border-slate-850">
+                              <span className="font-mono text-indigo-400">LAYER 2: HIDDEN (6)</span>
+                              <span className="text-[10px] text-slate-500">Activation: Tanh</span>
+                            </div>
+                            <div className="space-y-2">
+                              {nn.h2.map((val, idx) => (
+                                <div key={idx} className="p-2 rounded-lg bg-slate-900/60 border border-slate-850 flex items-center justify-between text-xs font-mono">
+                                  <span className="text-slate-400">h2[{idx}]</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-14 bg-slate-850 h-1.5 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full ${val >= 0 ? 'bg-indigo-400' : 'bg-amber-400'}`}
+                                        style={{ width: `${Math.min(100, Math.abs(val) * 100)}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className={`w-12 text-right font-bold ${val >= 0 ? 'text-indigo-300' : 'text-amber-300'}`}>
+                                      {val.toFixed(3)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-2 font-mono">
+                            Weights: W2 (8x6) • Biases: B2 (6)
+                          </div>
+                        </div>
+
+                        {/* Layer 3: Output Targets (4 Neurons) */}
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-indigo-500/40 ring-1 ring-indigo-500/20 flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-semibold text-indigo-300 mb-2 pb-1 border-b border-slate-850">
+                              <span className="font-mono">LAYER 3: OUTPUT (4)</span>
+                              <span className="text-[10px] text-slate-500">Sigmoid &rarr; Realized Target</span>
+                            </div>
+                            <div className="space-y-2.5">
+                              {/* Output 1: Risk Weight */}
+                              <div className="p-2.5 rounded-lg bg-indigo-950/30 border border-indigo-500/30">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-400">Predicted Risk Weight</div>
+                                <div className="text-lg font-bold font-mono text-indigo-300 mt-0.5">
+                                  {nn.predictedRiskWeight.toFixed(2)}x
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  Bounded: [0.30x - 1.40x] • Raw: {nn.outRaw[0].toFixed(3)}
+                                </div>
+                              </div>
+
+                              {/* Output 2: Win Confidence */}
+                              <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/30">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-400">Setup Win Confidence</div>
+                                <div className="text-lg font-bold font-mono text-emerald-400 mt-0.5">
+                                  {(nn.winConfidence * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  Confidence score from recent history
+                                </div>
+                              </div>
+
+                              {/* Output 3: Dynamic TP Target */}
+                              <div className="p-2.5 rounded-lg bg-cyan-950/30 border border-cyan-500/30">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-400">Dynamic Take Profit</div>
+                                <div className="text-lg font-bold font-mono text-cyan-300 mt-0.5">
+                                  {nn.predictedTp.toFixed(1)}R
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  Continuous R target [1.4R - 3.0R]
+                                </div>
+                              </div>
+
+                              {/* Output 4: Volatility Scalar */}
+                              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-400">Neural Volatility Scalar</div>
+                                <div className="text-base font-bold font-mono text-slate-200 mt-0.5">
+                                  {nn.neuralBufferScalar.toFixed(2)}x
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  Corridor buffer scalar [0.80x - 1.35x]
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-indigo-400 mt-2 font-mono flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            <span>100% Native MT5 Math (Zero external DLLs)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Synaptic Weights Matrix Inspector (Collapsible) */}
+                {showWeightMatrix && (
+                  <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                        <Binary className="w-4 h-4 text-indigo-400" />
+                        Synaptic Weight Matrices (W1: 6&times;8, W2: 8&times;6, W3: 6&times;4)
+                      </h4>
+                      <span className="text-[10px] font-mono text-slate-500">Live Weights in Memory</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs font-mono">
+                      {/* W1 Matrix */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                        <div className="text-cyan-400 font-bold mb-2 pb-1 border-b border-slate-850">
+                          Matrix W1 (6 Inputs &times; 8 Hidden 1)
+                        </div>
+                        <div className="space-y-1 text-[10px]">
+                          {nnW1.map((row, i) => (
+                            <div key={i} className="flex justify-between items-center gap-1">
+                              <span className="text-slate-500">x[{i}]:</span>
+                              <div className="flex gap-1">
+                                {row.map((w, j) => (
+                                  <span
+                                    key={j}
+                                    className={`px-1 py-0.5 rounded text-[9px] ${
+                                      w > 0.2 ? 'bg-emerald-950 text-emerald-400' : w < -0.2 ? 'bg-rose-950 text-rose-400' : 'bg-slate-900 text-slate-300'
+                                    }`}
+                                  >
+                                    {w.toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* W2 Matrix */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                        <div className="text-indigo-400 font-bold mb-2 pb-1 border-b border-slate-850">
+                          Matrix W2 (8 Hidden 1 &times; 6 Hidden 2)
+                        </div>
+                        <div className="space-y-1 text-[10px]">
+                          {nnW2.map((row, j) => (
+                            <div key={j} className="flex justify-between items-center gap-1">
+                              <span className="text-slate-500">h1[{j}]:</span>
+                              <div className="flex gap-1">
+                                {row.map((w, k) => (
+                                  <span
+                                    key={k}
+                                    className={`px-1 py-0.5 rounded text-[9px] ${
+                                      w > 0.2 ? 'bg-indigo-950 text-indigo-400' : w < -0.2 ? 'bg-amber-950 text-amber-400' : 'bg-slate-900 text-slate-300'
+                                    }`}
+                                  >
+                                    {w.toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* W3 Matrix */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                        <div className="text-emerald-400 font-bold mb-2 pb-1 border-b border-slate-850">
+                          Matrix W3 (6 Hidden 2 &times; 4 Outputs)
+                        </div>
+                        <div className="space-y-1 text-[10px]">
+                          {nnW3.map((row, k) => (
+                            <div key={k} className="flex justify-between items-center gap-1">
+                              <span className="text-slate-500">h2[{k}]:</span>
+                              <div className="flex gap-1">
+                                {row.map((w, m) => (
+                                  <span
+                                    key={m}
+                                    className={`px-1.5 py-0.5 rounded text-[9px] ${
+                                      w > 0.2 ? 'bg-cyan-950 text-cyan-400' : w < -0.2 ? 'bg-rose-950 text-rose-400' : 'bg-slate-900 text-slate-300'
+                                    }`}
+                                  >
+                                    {w.toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4 Strategy Neural Evaluation Cards */}
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-indigo-400" />
+                      Neural Network Strategy Evaluation & Live Online Learning
+                    </h3>
+                    <span className="text-xs text-slate-400">
+                      Click <strong className="text-emerald-400">+Win</strong> or <strong className="text-rose-400">-Loss</strong> below to trigger immediate online backpropagation
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {(['MM', 'SM', 'UniT_CP', 'UniT_Moving'] as const).map((stratKey) => {
+                      const nn = getNeuralMetrics(stratKey);
+                      const classic = getStrategyMetrics(stratKey);
+                      return (
+                        <div
+                          key={stratKey}
+                          className="p-5 rounded-2xl bg-slate-900 border border-indigo-500/40 shadow-lg shadow-indigo-950/20 flex flex-col justify-between"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-mono text-slate-400">{classic.tally.magic}</span>
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                NEURAL ACTIVE
+                              </span>
+                            </div>
+
+                            <h4 className="text-sm font-bold text-slate-100">{classic.tally.name}</h4>
+
+                            {/* Weight & Confidence Card */}
+                            <div className="mt-3 p-3 rounded-xl bg-slate-950 border border-slate-800/80 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-[10px] uppercase font-semibold text-slate-500">
+                                    Neural Risk Weight
+                                  </div>
+                                  <div className="text-xl font-bold font-mono text-indigo-300">
+                                    {nn.predictedRiskWeight.toFixed(2)}x
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-[10px] uppercase font-semibold text-slate-500">
+                                    Classic Weight
+                                  </div>
+                                  <div className="text-sm font-bold font-mono text-slate-400">
+                                    {classic.riskWeight.toFixed(2)}x
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="pt-2 border-t border-slate-850 flex justify-between text-xs">
+                                <span className="text-slate-400">Win Confidence:</span>
+                                <span className="font-mono font-bold text-emerald-400">{(nn.winConfidence * 100).toFixed(1)}%</span>
+                              </div>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-slate-400">Neural Auto-TP:</span>
+                                <span className="font-mono font-bold text-cyan-400">{nn.predictedTp.toFixed(1)}R</span>
+                              </div>
+                            </div>
+
+                            {/* Underlying Stats */}
+                            <div className="mt-3 space-y-1.5 text-xs font-mono text-[11px] p-2.5 rounded-xl bg-slate-950/60 border border-slate-850">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Sample Records:</span>
+                                <span className="text-slate-200">{classic.totalTrades} ({classic.tally.wins}W / {classic.tally.losses}L)</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Rolling Win Rate:</span>
+                                <span className="text-slate-200">{classic.winRate.toFixed(1)}%</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Profit Factor:</span>
+                                <span className="text-slate-200">{classic.profitFactor.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Consec Losses:</span>
+                                <span className={classic.tally.consecutiveLosses >= 3 ? 'text-rose-400 font-bold' : 'text-slate-200'}>
+                                  {classic.tally.consecutiveLosses}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Interactive Simulated Trade Actions */}
+                          <div className="mt-4 pt-3 border-t border-slate-800">
+                            <div className="text-[10px] text-slate-400 font-semibold mb-2 flex items-center justify-between">
+                              <span>SIMULATE & BACKPROPAGATE:</span>
+                              <span className="text-indigo-400 font-mono">TrainStep()</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => handleInjectTrade(stratKey, true, 2.0)}
+                                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-semibold transition"
+                              >
+                                <span>+ Win (+2R)</span>
+                              </button>
+                              <button
+                                onClick={() => handleInjectTrade(stratKey, false, -1.0)}
+                                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-semibold transition"
+                              >
+                                <span>- Loss (-1R)</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Option 1: Classic Quant Attribution Cards */
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-cyan-400" />
+                    Rolling Strategy Attribution & Dynamic Risk Weights
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    Click <strong className="text-emerald-400">+Win</strong> or <strong className="text-rose-400">-Loss</strong> below to test live self-tuning reactions
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {(['MM', 'SM', 'UniT_CP', 'UniT_Moving'] as const).map((stratKey) => {
+                    const m = getStrategyMetrics(stratKey);
+                    return (
+                      <div
+                        key={stratKey}
+                        className={`p-5 rounded-2xl bg-slate-900 border flex flex-col justify-between transition-all ${
+                          m.isOnProbation
+                            ? 'border-rose-500/60 shadow-lg shadow-rose-950/30'
+                            : m.isHighEdge
+                              ? 'border-emerald-500/60 shadow-lg shadow-emerald-950/30'
+                              : 'border-slate-800'
+                        }`}
+                      >
+                        <div>
+                          {/* Card Header */}
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-mono text-slate-400">{m.tally.magic}</span>
+                            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                              m.isOnProbation
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : m.isHighEdge
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-slate-800 text-slate-300'
+                            }`}>
+                              {m.isOnProbation
+                                ? '🚨 ON PROBATION'
+                                : m.isHighEdge
+                                  ? '🚀 HIGH EDGE'
+                                  : '⚖️ NORMAL EDGE'}
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-bold text-slate-100">{m.tally.name}</h4>
+
+                          {/* Weight Badge */}
+                          <div className="mt-3 p-3 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between">
+                            <div>
+                              <div className="text-[10px] uppercase font-semibold tracking-wider text-slate-500">
+                                Active Risk Multiplier
+                              </div>
+                              <div className={`text-xl font-bold font-mono ${
+                                m.isOnProbation
+                                  ? 'text-rose-400'
+                                  : m.isHighEdge
+                                    ? 'text-emerald-400'
+                                    : 'text-slate-200'
+                              }`}>
+                                {m.riskWeight.toFixed(2)}x
+                              </div>
+                            </div>
+                            <div className="text-right text-[11px] text-slate-400">
+                              <div>Score: <span className="font-mono font-bold text-cyan-400">{m.score.toFixed(1)}</span></div>
+                              <div>Auto TP: <span className="font-mono font-bold text-emerald-400">{m.optimalTp.toFixed(1)}R</span></div>
+                            </div>
+                          </div>
+
+                          {/* Metrics Breakdown */}
+                          <div className="mt-3 space-y-2 text-xs">
+                            <div>
+                              <div className="flex justify-between text-slate-400 mb-1">
+                                <span>Win Rate:</span>
+                                <span className="font-mono font-bold text-slate-200">{m.winRate.toFixed(1)}%</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    m.winRate >= 58
+                                      ? 'bg-emerald-500'
+                                      : m.winRate >= 45
+                                        ? 'bg-amber-500'
+                                        : 'bg-rose-500'
+                                  }`}
+                                  style={{ width: `${Math.min(100, Math.max(0, m.winRate))}%` }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                              <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-850">
+                                <div className="text-slate-500 text-[10px]">Profit Factor</div>
+                                <div className={`font-bold ${m.profitFactor >= 1.6 ? 'text-emerald-400' : m.profitFactor < 0.8 ? 'text-rose-400' : 'text-slate-200'}`}>
+                                  {m.profitFactor.toFixed(2)}
+                                </div>
+                              </div>
+                              <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-850">
+                                <div className="text-slate-500 text-[10px]">Realized Avg R</div>
+                                <div className="font-bold text-slate-200">
+                                  {m.avgR.toFixed(2)}R
+                                </div>
+                              </div>
+                              <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-850">
+                                <div className="text-slate-500 text-[10px]">Consec Losses</div>
+                                <div className={`font-bold ${m.tally.consecutiveLosses >= 3 ? 'text-rose-400' : 'text-slate-200'}`}>
+                                  {m.tally.consecutiveLosses}
+                                </div>
+                              </div>
+                              <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-855">
+                                <div className="text-slate-500 text-[10px]">Sample Trades</div>
+                                <div className="font-bold text-slate-200">
+                                  {m.totalTrades} ({m.tally.wins}W/{m.tally.losses}L)
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interactive Simulated Trade Actions */}
+                        <div className="mt-4 pt-3 border-t border-slate-800">
+                          <div className="text-[10px] text-slate-400 font-semibold mb-2 flex items-center justify-between">
+                            <span>INJECT SIMULATED DEAL:</span>
+                            <span className="text-cyan-400 font-mono">OnTradeTransaction()</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => handleInjectTrade(stratKey, true, 2.0)}
+                              className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-semibold transition"
+                            >
+                              <span>+ Win (+2R)</span>
+                            </button>
+                            <button
+                              onClick={() => handleInjectTrade(stratKey, false, -1.0)}
+                              className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-semibold transition"
+                            >
+                              <span>- Loss (-1R)</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Side-by-Side Comparison Matrix: Option 1 vs Option 2 */}
+            <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-cyan-400" />
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
+                    Dual Optimization Core Comparison Matrix
+                  </h3>
+                </div>
+                <span className="text-xs font-mono text-slate-400">
+                  Switching parameter: <code className="text-cyan-300">InpSelfOptCore</code>
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Dimension</th>
+                      <th className="py-2.5 px-3 text-cyan-400">Option 1: Classic Quant Optimization</th>
+                      <th className="py-2.5 px-3 text-indigo-400">Option 2: Smart Neural Network (MLP)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Algorithmic Engine</td>
+                      <td className="py-2.5 px-3 text-slate-400">Discrete rule-based statistical attribution</td>
+                      <td className="py-2.5 px-3 text-indigo-300">Continuous 6x8x6x4 Multi-Layer Perceptron (Non-linear regression)</td>
+                    </tr>
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Underperformance Handling</td>
+                      <td className="py-2.5 px-3 text-rose-400">Hard step-down to 0.50x probation on 3 consecutive losses</td>
+                      <td className="py-2.5 px-3 text-indigo-300">Continuous smooth damping down to 0.30x proportional to streak loss</td>
+                    </tr>
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Outperformance Scaling</td>
+                      <td className="py-2.5 px-3 text-emerald-400">Discrete step-up to 1.20x edge boost on PF &ge; 1.6 &amp; WR &ge; 58%</td>
+                      <td className="py-2.5 px-3 text-indigo-300">Continuous scaling up to 1.40x proportional to setup win probability</td>
+                    </tr>
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Dynamic Take Profit</td>
+                      <td className="py-2.5 px-3 text-slate-400">Rule-based step adjustment (+0.4R or -0.3R)</td>
+                      <td className="py-2.5 px-3 text-indigo-300">Continuous R-Multiple prediction [1.4R - 3.0R] calibrated to reward distribution</td>
+                    </tr>
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Learning Mechanism</td>
+                      <td className="py-2.5 px-3 text-slate-400">Rolling circular ring buffer window (last N deals)</td>
+                      <td className="py-2.5 px-3 text-indigo-300">Online Stochastic Gradient Descent with momentum (&alpha;=0.10) on trade close</td>
+                    </tr>
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Execution Footprint</td>
+                      <td className="py-2.5 px-3 text-slate-400">O(N) ring buffer scan on deal transaction</td>
+                      <td className="py-2.5 px-3 text-indigo-300">Fixed matrix forward pass (~120 FLOPs, &lt;1 microsecond execution in MT5)</td>
+                    </tr>
+                    <tr className="hover:bg-slate-800/30">
+                      <td className="py-2.5 px-3 text-slate-300 font-bold">Sovereign Hierarchy</td>
+                      <td className="py-2.5 px-3 text-emerald-400">Master Risk 3.8% Kill Switch is absolute master</td>
+                      <td className="py-2.5 px-3 text-emerald-400">Master Risk 3.8% Kill Switch is absolute master</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Volatility Corridor & Dynamic ATR Scaling Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Volatility Corridor Meter */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <Gauge className="w-4 h-4 text-cyan-400" />
+                    Adaptive Volatility Corridor Scaling
+                  </h3>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold font-mono ${
+                    isCompressionRegime
+                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                      : isExpansionRegime
+                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                        : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  }`}>
+                    {isCompressionRegime ? 'COMPRESSION SQUEEZE (<0.75)' : isExpansionRegime ? 'EXPANSION HIGH-VOL (>1.35)' : 'NORMAL REGIME'}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                  The EA compares short-term <code className="text-cyan-300">ATR(14)</code> against a 100-period baseline corridor.
+                  When market volatility expands, stop-loss and swing tolerances are automatically widened by <strong>{bufferScalar.toFixed(2)}x</strong> to avoid premature stop-outs from erratic wicks.
+                </p>
+
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
+                  <div>
+                    <div className="flex justify-between items-center text-xs mb-1.5">
+                      <span className="text-slate-400">Current ATR(14):</span>
+                      <span className="font-mono text-cyan-400 font-bold">{simulatedAtr14.toFixed(4)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.0008"
+                      max="0.0030"
+                      step="0.0001"
+                      value={simulatedAtr14}
+                      onChange={(e) => setSimulatedAtr14(Number(e.target.value))}
+                      className="w-full accent-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center text-xs mb-1.5">
+                      <span className="text-slate-400">Baseline ATR(100):</span>
+                      <span className="font-mono text-slate-300 font-bold">{simulatedBaselineAtr.toFixed(4)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.0010"
+                      max="0.0025"
+                      step="0.0001"
+                      value={simulatedBaselineAtr}
+                      onChange={(e) => setSimulatedBaselineAtr(Number(e.target.value))}
+                      className="w-full accent-cyan-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-850 text-center font-mono text-xs">
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] text-slate-500">Volatility Ratio</div>
+                      <div className="text-base font-bold text-cyan-400 mt-0.5">{volRatio.toFixed(2)}x</div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] text-slate-500">Buffer Scalar</div>
+                      <div className="text-base font-bold text-emerald-400 mt-0.5">{bufferScalar.toFixed(2)}x</div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                      <div className="text-[10px] text-slate-500">Tactical Effect</div>
+                      <div className="text-[11px] font-semibold text-slate-200 mt-1">
+                        {isCompressionRegime ? 'Tighten 15%' : isExpansionRegime ? 'Widen 25%' : 'Standard'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live MT5 Chart Comment Telemetry String */}
+              <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-cyan-400" />
+                      Live MT5 Chart Telemetry String
+                    </h3>
+                    <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      Comment() Hook
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed mb-3">
+                    In live MetaTrader 5 operation, <code className="text-cyan-300">CSelfOptimizer::GetTelemetryString()</code> renders
+                    the real-time self-optimization status directly in the top-left chart comment and MT5 journal:
+                  </p>
+
+                  {/* Terminal display */}
+                  {(() => {
+                    const mm = getStrategyMetrics('MM');
+                    const sm = getStrategyMetrics('SM');
+                    const cp = getStrategyMetrics('UniT_CP');
+                    const mov = getStrategyMetrics('UniT_Moving');
+                    const inspectedNn = getNeuralMetrics(inspectStrategy);
+
+                    const telemetryStr = optMode === 'SELF_OPT_DISABLED'
+                      ? 'Self-Optimizer: DISABLED (Static 1.00x Weights)'
+                      : optCore === 'OPT_CORE_NEURAL'
+                        ? `[SELF-OPT: SMART NEURAL] Epochs: ${nnEpochs} | Loss: ${nnLoss.toFixed(4)} | WinConf: ${(inspectedNn.winConfidence * 100).toFixed(1)}% | NeuralWeight: ${inspectedNn.predictedRiskWeight.toFixed(2)}x | VolScalar: ${bufferScalar.toFixed(2)}x`
+                        : `[SELF-OPT: CLASSIC QUANT] VolRatio: ${volRatio.toFixed(2)} (Scalar: ${bufferScalar.toFixed(2)}x) | MM: ${mm.winRate.toFixed(1)}% WR, W:${mm.riskWeight.toFixed(2)} | SM: ${sm.winRate.toFixed(1)}% WR, W:${sm.riskWeight.toFixed(2)}${sm.isOnProbation ? ' [PROBATION]' : ''} | UniT-CP: ${cp.winRate.toFixed(1)}% WR, W:${cp.riskWeight.toFixed(2)} | UniT-Mov: ${mov.winRate.toFixed(1)}% WR, W:${mov.riskWeight.toFixed(2)}`;
+
+                    return (
+                      <div className="p-4 rounded-xl bg-slate-950 border border-cyan-900/40 text-xs font-mono space-y-3">
+                        <div className="flex items-center justify-between text-slate-500 text-[10px] pb-1 border-b border-slate-850">
+                          <span>META-TRADER 5 CHART COMMENT PREVIEW</span>
+                          <button
+                            onClick={() => handleCopyCode(telemetryStr)}
+                            className="text-cyan-400 hover:text-cyan-300 transition flex items-center gap-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy String</span>
+                          </button>
+                        </div>
+                        <div className="text-cyan-300 break-all leading-relaxed bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                          {telemetryStr}
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Generated on tick & deal close by CSelfOptimizer::GetTelemetryString()</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Auditability guarantee */}
+                <div className="mt-4 p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-[11px] text-slate-400 flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-slate-200">Central Sovereign Safeguard:</strong> The self-optimizer can never exceed the Master Risk Engine bounds. Hard Kill Switch (3.8%) and Max Daily Loss (4.0%) retain supreme authority and will terminate all positions regardless of optimizer weight states.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Rolling Trade Ring Buffer History Log */}
+            <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  Rolling Trade Ring Buffer Memory (Last {recentTradesHistory.length} Deals)
+                </h3>
+                <span className="text-xs text-slate-500 font-mono">
+                  Circular Buffer: {recentTradesHistory.length} / {optRollingCapacity}
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Deal Time</th>
+                      <th className="py-2.5 px-3">Strategy</th>
+                      <th className="py-2.5 px-3">Outcome</th>
+                      <th className="py-2.5 px-3">Realized R</th>
+                      <th className="py-2.5 px-3">PnL ($)</th>
+                      <th className="py-2.5 px-3">Attribution Impact</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono">
+                    {recentTradesHistory.map((deal) => (
+                      <tr key={deal.id} className="hover:bg-slate-800/30 transition">
+                        <td className="py-2.5 px-3 text-slate-400">{deal.time}</td>
+                        <td className="py-2.5 px-3 text-slate-200 font-semibold">{deal.strategyKey}</td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            deal.isWin ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                          }`}>
+                            {deal.isWin ? 'WIN' : 'LOSS'}
+                          </span>
+                        </td>
+                        <td className={`py-2.5 px-3 font-bold ${deal.isWin ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {deal.rMultiple > 0 ? `+${deal.rMultiple.toFixed(1)}R` : `${deal.rMultiple.toFixed(1)}R`}
+                        </td>
+                        <td className={`py-2.5 px-3 ${deal.profit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {deal.profit > 0 ? `+$${deal.profit.toFixed(2)}` : `-$${Math.abs(deal.profit).toFixed(2)}`}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 text-[11px]">
+                          {deal.strategyKey === 'SM' && !deal.isWin
+                            ? 'Consecutive loss incremented → Contributed to Probation state'
+                            : deal.isWin
+                              ? 'Edge attribution accumulated → Win rate & PF elevated'
+                              : 'Loss absorbed in rolling ring buffer'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: MQL5 CODE EXPLORER */}
         {/* ========================================================================= */}
         {activeTab === 'code' && (
           <div className="space-y-6">
@@ -833,6 +2376,101 @@ export default function App() {
                       onChange={(e) => setCalcEquity(Number(e.target.value))}
                       className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-mono focus:outline-none focus:border-emerald-500"
                     />
+                  </div>
+
+                  {/* Optimizer Multiplier Core Toggle */}
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400 font-semibold flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                        Optimization Multiplier Core:
+                      </span>
+                      <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800">
+                        <button
+                          onClick={() => setCalcOptCore('OPT_CORE_CLASSIC')}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                            calcOptCore === 'OPT_CORE_CLASSIC'
+                              ? 'bg-cyan-600 text-white shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Option 1: Classic
+                        </button>
+                        <button
+                          onClick={() => setCalcOptCore('OPT_CORE_NEURAL')}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                            calcOptCore === 'OPT_CORE_NEURAL'
+                              ? 'bg-indigo-600 text-white shadow'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Option 2: Smart Neural
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-mono pt-1 border-t border-slate-850 text-slate-400">
+                      <span>Classic Multiplier: <strong className="text-cyan-400">{lotCalc.stratMetrics.riskWeight.toFixed(2)}x</strong></span>
+                      <span>Neural Multiplier: <strong className="text-indigo-400">{lotCalc.neuralMetrics.predictedRiskWeight.toFixed(2)}x</strong></span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-slate-400">Target Strategy (Active Core Multiplier: {lotCalc.activeRiskWeight.toFixed(2)}x)</label>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                        calcOptCore === 'OPT_CORE_NEURAL'
+                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                          : lotCalc.stratMetrics.isOnProbation
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            : lotCalc.stratMetrics.isHighEdge
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {calcOptCore === 'OPT_CORE_NEURAL'
+                          ? `NEURAL: ${lotCalc.neuralMetrics.predictedRiskWeight.toFixed(2)}x (${(lotCalc.neuralMetrics.winConfidence * 100).toFixed(0)}% Conf)`
+                          : lotCalc.stratMetrics.isOnProbation
+                            ? `PROBATION: ${lotCalc.stratMetrics.riskWeight.toFixed(2)}x`
+                            : lotCalc.stratMetrics.isHighEdge
+                              ? `HIGH EDGE: ${lotCalc.stratMetrics.riskWeight.toFixed(2)}x`
+                              : `NORMAL: ${lotCalc.stratMetrics.riskWeight.toFixed(2)}x`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { key: 'MM' as const, label: 'MM (Trend)' },
+                        { key: 'SM' as const, label: 'SM (Stubborn Man)' },
+                        { key: 'UniT_CP' as const, label: 'UniT CP (Retest)' },
+                        { key: 'UniT_Moving' as const, label: 'UniT Moving (EMA21)' }
+                      ].map((item) => {
+                        const m = getStrategyMetrics(item.key);
+                        const n = getNeuralMetrics(item.key);
+                        return (
+                          <button
+                            key={item.key}
+                            onClick={() => setSelectedCalcStrategy(item.key)}
+                            className={`p-2 rounded-xl text-xs font-semibold text-left transition flex items-center justify-between ${
+                              selectedCalcStrategy === item.key
+                                ? 'bg-slate-850 border border-cyan-500 text-white shadow-sm'
+                                : 'bg-slate-950 border border-slate-800 text-slate-400 hover:bg-slate-900'
+                            }`}
+                          >
+                            <span>{item.label}</span>
+                            <div className="flex items-center gap-1 text-[10px] font-mono font-bold">
+                              <span className={`px-1.5 py-0.5 rounded ${
+                                calcOptCore === 'OPT_CORE_CLASSIC' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'
+                              }`}>
+                                C:{m.riskWeight.toFixed(2)}x
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded ${
+                                calcOptCore === 'OPT_CORE_NEURAL' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-500'
+                              }`}>
+                                N:{n.predictedRiskWeight.toFixed(2)}x
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div>
@@ -1011,11 +2649,26 @@ export default function App() {
 
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                      <div className="text-xs text-slate-400">Calculated Volume</div>
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span>Calculated Volume</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                          calcOptCore === 'OPT_CORE_NEURAL' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-cyan-500/20 text-cyan-400'
+                        }`}>
+                          {calcOptCore === 'OPT_CORE_NEURAL' ? 'NEURAL SIZED' : 'CLASSIC SIZED'}
+                        </span>
+                      </div>
                       <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">
                         {lotCalc.lots} Lots
                       </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Normalized to broker step</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 flex justify-between">
+                        <span>Broker 0.01 step</span>
+                        <span className="font-mono text-slate-400">
+                          {calcOptCore === 'OPT_CORE_NEURAL'
+                            ? `Classic: ${(Math.floor((lotCalc.lossPerLot > 0 ? (calcEquity * ((consecLosses >= 3 ? 0.5 : calcRiskPct) * lotCalc.stratMetrics.riskWeight / 100)) / lotCalc.lossPerLot : 0) * 100) / 100).toFixed(2)}L`
+                            : `Neural: ${(Math.floor((lotCalc.lossPerLot > 0 ? (calcEquity * ((consecLosses >= 3 ? 0.5 : calcRiskPct) * lotCalc.neuralMetrics.predictedRiskWeight / 100)) / lotCalc.lossPerLot : 0) * 100) / 100).toFixed(2)}L`
+                          }
+                        </span>
+                      </div>
                     </div>
 
                     <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
@@ -1033,7 +2686,9 @@ export default function App() {
                   {(() => {
                     const slDist = Math.abs(calcEntry - calcSL);
                     const isBuy = calcEntry >= calcSL;
-                    const rMultiple = calcTpMode === 'AUTO' ? 2.0 : calcManualTpMultiple;
+                    const rMultiple = calcTpMode === 'AUTO'
+                      ? (calcOptCore === 'OPT_CORE_NEURAL' ? lotCalc.neuralMetrics.predictedTp : lotCalc.stratMetrics.optimalTp)
+                      : calcManualTpMultiple;
                     const targetTP = isBuy ? calcEntry + (slDist * rMultiple) : calcEntry - (slDist * rMultiple);
                     const rewardDollars = lotCalc.riskMoney * rMultiple;
                     const priceDecimals = calcSymbol === 'XAUUSD' ? 2 : (calcSymbol === 'US30' ? 0 : 5);
@@ -1046,7 +2701,9 @@ export default function App() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-400">Risk-to-Reward Ratio:</span>
-                          <span className="text-emerald-400 font-semibold">1 : {rMultiple.toFixed(1)} ({rMultiple.toFixed(1)}R)</span>
+                          <span className="text-emerald-400 font-semibold">
+                            1 : {rMultiple.toFixed(1)} ({rMultiple.toFixed(1)}R {calcTpMode === 'AUTO' ? (calcOptCore === 'OPT_CORE_NEURAL' ? '• Neural' : '• Classic') : '• Manual'})
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-400">Anticipated Profit at TP:</span>
@@ -1238,7 +2895,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-950 py-4 text-center text-xs text-slate-500">
-        Deterministic MQL5 EA Studio • MM, SM (Stubborn Man), UniT • Rule-Based Quantitative Algorithmic Engine • Zero AI/ML/News
+        Deterministic MQL5 EA Studio • MM, SM, UniT • Dual Optimization Engine (Option 1: Classic Quant & Option 2: Smart Neural Network) • 100% Native MQL5
       </footer>
     </div>
   );

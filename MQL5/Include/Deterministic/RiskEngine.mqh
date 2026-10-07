@@ -9,6 +9,7 @@
 #property strict
 
 #include "Defines.mqh"
+#include "SelfOptimizer.mqh"
 #include <Trade\AccountInfo.mqh>
 #include <Trade\SymbolInfo.mqh>
 
@@ -17,6 +18,7 @@ class CRiskEngine
 private:
    CAccountInfo      m_account;
    CSymbolInfo       m_symbolInfo;
+   CSelfOptimizer   *m_optimizer;
 
    double            m_maxRiskPerTradePercent;
    double            m_maxDailyLossPercent;      // 4.0%
@@ -58,6 +60,7 @@ public:
         m_eodCloseMinute(45),
         m_tpMode(TP_MODE_AUTO),
         m_manualTpMultiple(2.0),
+        m_optimizer(NULL),
         m_consecutiveLossCount(0),
         m_isReducedRiskMode(false),
         m_reducedRiskPercent(0.50),
@@ -96,6 +99,11 @@ public:
 
       UpdateDailyState();
       return true;
+   }
+
+   void SetSelfOptimizer(CSelfOptimizer *opt)
+   {
+      m_optimizer = opt;
    }
 
    //+------------------------------------------------------------------+
@@ -174,6 +182,28 @@ public:
       }
       else
       {
+         double targetR = signal.riskRewardRatio;
+         // Self-Optimizer dynamic R-multiple adaptation in Auto TP mode
+         if(m_optimizer != NULL)
+         {
+            double optR = m_optimizer.GetOptimalTpMultiple(signal.strategy, signal.riskRewardRatio);
+            if(optR != signal.riskRewardRatio && optR > 0.0)
+            {
+               targetR = optR;
+               double riskDist = MathAbs(signal.entryPrice - signal.stopLoss);
+               if(riskDist > 0.0)
+               {
+                  if(signal.direction == DIR_BUY)
+                     signal.takeProfit = signal.entryPrice + (riskDist * targetR);
+                  else if(signal.direction == DIR_SELL)
+                     signal.takeProfit = signal.entryPrice - (riskDist * targetR);
+
+                  signal.riskRewardRatio = targetR;
+                  signal.reasonCode += StringFormat("|SELF_OPT_TP_%.1fR", targetR);
+                  return;
+               }
+            }
+         }
          signal.reasonCode += StringFormat("|AUTO_TP_%.1fR", signal.riskRewardRatio);
       }
    }
@@ -249,6 +279,17 @@ public:
       else
       {
          signal.riskPercent = MathMin(signal.riskPercent, m_maxRiskPerTradePercent);
+      }
+
+      // 6. Apply Self-Optimizer Strategy Risk Weight Calibration
+      if(m_optimizer != NULL)
+      {
+         double optWeight = m_optimizer.GetStrategyRiskWeight(signal.strategy);
+         if(optWeight != 1.0)
+         {
+            signal.riskPercent *= optWeight;
+            signal.reasonCode += StringFormat("|OPT_WEIGHT_%.2f", optWeight);
+         }
       }
 
       return true;

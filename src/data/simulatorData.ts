@@ -31,7 +31,7 @@ export interface SimCandle {
 export interface Scenario {
   id: string;
   title: string;
-  strategy: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving' | 'Conflict' | 'Risk';
+  strategy: 'MM' | 'SM' | 'UniT_CP' | 'UniT_Moving' | 'Conflict' | 'Risk' | 'SelfOpt';
   timeframe: 'M5' | 'M15';
   symbol: string;
   description: string;
@@ -213,6 +213,36 @@ export const SCENARIOS: Scenario[] = [
           riskPct: 0,
           reason: 'CRITICAL: Hard kill switch triggered! Daily Drawdown: 3.85% >= 3.80%. All open positions liquidated at market.',
           status: 'BLOCKED_BY_RISK'
+        }
+      }
+    ]
+  },
+  {
+    id: 'self_opt_adaptation',
+    title: 'Self-Optimizer: Volatility Expansion & Probation Throttling (M5)',
+    strategy: 'SelfOpt',
+    timeframe: 'M5',
+    symbol: 'GBPUSD',
+    description: 'ATR14 spikes to 1.45x baseline in high-volatility expansion. The self-optimizer dynamically widens the Last-Pivot SL buffer by 1.25x. Meanwhile, after 3 previous losses on high-risk setups, the strategy is placed on Probation (risk weight cut to 0.50x), safeguarding capital.',
+    expectedOutcome: 'Signal executed with risk halved to 0.50% (|OPT_WEIGHT_0.50), Last-Pivot buffer widened by 1.25x (|VOL_SCALAR_1.25), and target dynamically calibrated.',
+    candles: [
+      { index: 1, time: '13:00', open: 1.2980, high: 1.3010, low: 1.2975, close: 1.3005, ema21: 1.2970, ema50: 1.2950, slowEma: 1.2920, atr: 0.0022, structureEvent: 'VOL_RATIO_1.45_EXPANSION' },
+      { index: 2, time: '13:05', open: 1.3005, high: 1.3035, low: 1.3000, close: 1.3030, ema21: 1.2980, ema50: 1.2955, slowEma: 1.2922, atr: 0.0023, structureEvent: 'SPIKE_HIGH_1.3035' },
+      { index: 3, time: '13:10', open: 1.3030, high: 1.3032, low: 1.2995, close: 1.3000, ema21: 1.2988, ema50: 1.2960, slowEma: 1.2925, atr: 0.0022, zoneEvent: 'PULLBACK_CANDLE' },
+      { 
+        index: 4, time: '13:15', open: 1.3000, high: 1.3040, low: 1.2996, close: 1.3038, ema21: 1.2995, ema50: 1.2965, slowEma: 1.2928, atr: 0.0022,
+        structureEvent: 'LAST_PIVOT_1.2996_EXPANDED_BUFFER',
+        signalEvent: 'UNIT_CP_BUY_ADAPTIVE',
+        signalDetails: {
+          strategy: 'UniT_CP',
+          type: 'SIGNAL_UNIT_CP_BUY',
+          dir: 'BUY',
+          entry: 1.3038,
+          sl: 1.2992, // 1.2996 - (0.0022 * 0.10 * 1.25 buffer scalar) = 1.2992
+          tp: 1.3148, // 2.4R extended auto target for high momentum
+          riskPct: 0.50, // Throttled by 0.50x probation weight (1.0% -> 0.50%)
+          reason: 'UNIT_CP_BUY|VOL_SCALAR_1.25|OPT_WEIGHT_0.50|SELF_OPT_TP_2.4R|PROBATION_ACTIVE',
+          status: 'EXECUTED'
         }
       }
     ]

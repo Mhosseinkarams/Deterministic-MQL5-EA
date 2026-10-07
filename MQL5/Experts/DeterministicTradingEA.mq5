@@ -23,6 +23,7 @@
 #include "..\Include\Deterministic\StrategyUniT.mqh"
 #include "..\Include\Deterministic\ConflictManager.mqh"
 #include "..\Include\Deterministic\RiskEngine.mqh"
+#include "..\Include\Deterministic\SelfOptimizer.mqh"
 #include "..\Include\Deterministic\ExecutionEngine.mqh"
 #include "..\Include\Deterministic\PositionManager.mqh"
 #include "..\Include\Deterministic\Visualizer.mqh"
@@ -68,6 +69,15 @@ input group "=== Take Profit Configuration ==="
 input ENUM_TP_MODE      InpTpMode               = TP_MODE_AUTO;   // Take Profit Mode (Auto vs Manual)
 input double            InpManualTpMultiple     = 2.0;            // Manual TP Size (R-Multiple: 1.0 = 1R, 2.0 = 2R, 3.0 = 3R)
 
+input group "=== Self-Optimization Engine ==="
+input ENUM_OPTIMIZER_CORE InpSelfOptCore        = OPT_CORE_CLASSIC;  // Optimization Core (Option 1: Classic Quant vs Option 2: Smart Neural Network)
+input ENUM_SELF_OPT_MODE InpSelfOptMode         = SELF_OPT_ADAPTIVE; // Self-Optimization Mode (Disabled/Adaptive/Aggressive)
+input int               InpSelfOptRollingTrades = 30;                // Rolling Attribution Window (Trades)
+input int               InpSelfOptMinEvalTrades = 4;                 // Min Trades for Strategy Weight Calibration
+input bool              InpSelfOptAdaptiveVol   = true;              // Adaptive Volatility Buffer Scaling
+input bool              InpSelfOptAdaptiveWeight= true;              // Adaptive Strategy Risk Weighting
+input bool              InpSelfOptAdaptiveTp    = true;              // Adaptive Take Profit R-Multiple Optimization
+
 input group "=== Risk & Capital Protection ==="
 input double            InpBaseRiskPercent      = 1.0;         // Base Risk Per Trade (%)
 input double            InpMaxDailyLossPercent  = 4.0;         // Max Daily Loss (%)
@@ -96,6 +106,7 @@ CStrategySM             g_strategySM;
 CStrategyUniT           g_strategyUniT;
 CStrategyConflictManager g_conflictManager;
 CRiskEngine             g_riskEngine;
+CSelfOptimizer          g_selfOptimizer;
 CExecutionEngine        g_execution;
 CPositionManager        g_positionManager;
 CVisualizer             g_visualizer;
@@ -157,7 +168,11 @@ int OnInit()
    // 5. Initialize Risk & Execution
    g_riskEngine.Init(InpBaseRiskPercent, InpMaxDailyLossPercent, InpHardKillThreshold, InpMinRiskRewardRatio, InpMaxSpreadPoints, InpEnableEODFlat, InpEODCloseHour, InpEODCloseMinute, InpTpMode, InpManualTpMultiple);
    
-   // 6. Initialize Visualizer & Journal
+   // 6. Initialize Self-Optimization Engine (Option 1: Classic Quant vs Option 2: Smart Neural Network)
+   g_selfOptimizer.Init(_Symbol, InpStrategyTimeframe, InpSelfOptCore, InpSelfOptMode, InpSelfOptRollingTrades, InpSelfOptMinEvalTrades, InpSelfOptAdaptiveVol, InpSelfOptAdaptiveWeight, InpSelfOptAdaptiveTp);
+   g_riskEngine.SetSelfOptimizer(&g_selfOptimizer);
+
+   // 7. Initialize Visualizer & Journal
    g_visualizer.Init(InpEnableDebugVisuals);
    g_journal.SetVerbose(InpVerboseJournal);
 
@@ -194,16 +209,21 @@ void OnTick()
    double currentAtr = g_indicators.GetATR(1);
    if(currentAtr <= 0.0) currentAtr = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 20.0;
 
+   // 3b. Update Self-Optimizer Volatility Regime & Adaptive Buffers
+   g_selfOptimizer.UpdateRegime(g_indicators);
+   double effectiveAtr = currentAtr * g_selfOptimizer.GetBufferScalar();
+   Comment(g_selfOptimizer.GetTelemetryString());
+
    // 4. Analyze latest closed candle (Shift 1)
    CandleMetrics closedCandle;
    if(!g_candleEngine.Analyze(_Symbol, InpStrategyTimeframe, 1, currentAtr, closedCandle))
       return;
 
    // 5. Update Market Structure (Swings, BOS, CHOCH) - Zero-Lookahead
-   g_structure.Update(currentAtr, 120);
+   g_structure.Update(effectiveAtr, 120);
 
    // 6. Update Supply & Demand Zones (Creation, Touches, Invalidation)
-   g_sdEngine.Update(currentAtr, g_candleEngine);
+   g_sdEngine.Update(effectiveAtr, g_candleEngine);
 
    // 7. Evaluate Trend & Range Classification
    ENUM_MARKET_TREND marketTrend = g_trendEngine.Evaluate(_Symbol, InpStrategyTimeframe, g_indicators, g_structure, g_sdEngine, currentAtr);
@@ -312,8 +332,22 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          {
             double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
             g_riskEngine.OnTradeClosed(profit, MathAbs(profit));
-            PrintFormat("[OnTradeTransaction] Deal #%d closed with PnL: %.2f. Consecutive losses: %d",
-                        dealTicket, profit, g_riskEngine.GetConsecutiveLosses());
+
+            long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+            ENUM_STRATEGY_TYPE strat = STRATEGY_NONE;
+            if(magic >= InpBaseMagicNumber && magic <= InpBaseMagicNumber + 500)
+            {
+               int stratId = (int)((magic - InpBaseMagicNumber) / 100);
+               if(stratId >= 1 && stratId <= 4)
+                  strat = (ENUM_STRATEGY_TYPE)stratId;
+            }
+
+            double riskDollars = MathMax(1.0, AccountInfoDouble(ACCOUNT_EQUITY) * (InpBaseRiskPercent / 100.0));
+            double rMult = (profit >= 0.0) ? (profit / riskDollars) : -1.0;
+            g_selfOptimizer.OnTradeClosed(strat, profit, rMult);
+
+            PrintFormat("[OnTradeTransaction] Deal #%d closed: PnL=%.2f (%s, %.2fR). %s",
+                        dealTicket, profit, EnumToString(strat), rMult, g_selfOptimizer.GetTelemetryString());
          }
       }
    }
