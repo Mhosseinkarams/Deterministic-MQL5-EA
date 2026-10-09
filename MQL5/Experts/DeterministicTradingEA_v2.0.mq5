@@ -198,7 +198,8 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    PrintFormat("[DEINIT] Deterministic EA ver2.0 removed. Reason code: %d", reason);
-   g_visualizer.ClearVisuals();
+   g_indicators.Release();
+   g_visualizer.CleanObjects();
    Comment("");
 }
 
@@ -235,12 +236,9 @@ void OnTick()
    if(!IsNewClosedBar())
       return;
 
-   // 3. Update Indicator Buffers
-   if(!g_indicators.Update())
-   {
-      g_journal.LogSystem("Failed to update indicators on bar close.", LOG_LEVEL_WARNING);
-      return;
-   }
+   // 3. Get Current Market Context & Volatility Buffers
+   double currentAtr = g_indicators.GetATR(1);
+   if(currentAtr <= 0.0) currentAtr = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 20.0;
 
    // 4. Update Self-Optimizer Volatility Regime
    g_selfOptimizer.UpdateRegime(g_indicators);
@@ -253,7 +251,6 @@ void OnTick()
       return;
    }
 
-   double currentAtr   = g_indicators.GetATR(1);
    double effectiveAtr = currentAtr * g_selfOptimizer.GetBufferScalar();
 
    // 6. Display Real-time Telemetry Comment
@@ -304,12 +301,13 @@ void OnTick()
    for(int i = 0; i < count; i++)
    {
       TradeSignal sig = candidates[i];
+      g_journal.LogSignalGenerated(sig);
 
       // A. Conflict Filter
       string conflictErr = "";
       if(!g_conflictManager.ValidateSignal(sig, marketTrend, currentAtr, conflictErr))
       {
-         g_journal.LogConflict(sig, conflictErr);
+         g_journal.LogSignalRejected(sig, "CONFLICT_MANAGER", conflictErr);
          continue;
       }
 
@@ -317,7 +315,7 @@ void OnTick()
       string riskErr = "";
       if(!g_riskEngine.ValidateSignal(sig, riskErr))
       {
-         g_journal.LogRisk(sig, riskErr);
+         g_journal.LogSignalRejected(sig, "RISK_ENGINE", riskErr);
          continue;
       }
 
@@ -325,7 +323,7 @@ void OnTick()
       if(InpConsecLossThrottle)
       {
          StrategyPerformanceMetrics perf;
-         if(g_selfOptimizer.GetStratMetrics(sig.strategy, perf))
+         if(g_selfOptimizer.GetPerformanceMetrics(sig.strategy, perf))
          {
             if(perf.consecutiveLosses >= 2) sig.riskPercent *= 0.60;
             if(perf.consecutiveLosses >= 4) sig.riskPercent *= 0.30;
@@ -337,7 +335,7 @@ void OnTick()
       double lots = g_riskEngine.CalculateLotSize(_Symbol, sig.entryPrice, sig.stopLoss, sig.riskPercent, lotErr);
       if(lots <= 0.0)
       {
-         g_journal.LogRisk(sig, StringFormat("Zero lot size calculated: %s", lotErr));
+         g_journal.LogSignalRejected(sig, "POSITION_SIZING", lotErr);
          continue;
       }
 
@@ -346,13 +344,13 @@ void OnTick()
       string execErr = "";
       if(g_execution.ExecuteSignal(sig, lots, ticket, execErr))
       {
-         g_journal.LogTrade(sig, ticket, lots);
+         g_journal.LogOrderExecuted(ticket, sig, lots);
          g_visualizer.DrawSignal(sig);
          break; // Enforce single position admission per bar
       }
       else
       {
-         g_journal.LogSystem(StringFormat("Execution failed for %s: %s", EnumToString(sig.signalType), execErr), LOG_LEVEL_ERROR);
+         g_journal.LogSignalRejected(sig, "EXECUTION_ROUTING", execErr);
       }
    }
 }
@@ -371,7 +369,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
          if(entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_INOUT)
          {
             double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
-            g_riskEngine.OnTradeClosed(profit);
+            g_riskEngine.OnTradeClosed(profit, MathAbs(profit));
 
             // Update peak equity for drawdown monitoring
             double currentEq = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -380,7 +378,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
             // Route trade outcome to SelfOptimizer
             long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
             ENUM_STRATEGY_TYPE strat = STRATEGY_NONE;
-            if(magic >= InpBaseMagicNumber && magic <= InpBaseMagicNumber + 500)
+            if((ulong)magic >= InpBaseMagicNumber && (ulong)magic <= InpBaseMagicNumber + 500)
             {
                int stratId = (int)((magic - InpBaseMagicNumber) / 100);
                if(stratId >= 1 && stratId <= 4)

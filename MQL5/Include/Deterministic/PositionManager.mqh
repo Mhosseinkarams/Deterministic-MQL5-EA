@@ -62,7 +62,7 @@ public:
          {
             if(m_posInfo.Symbol() == symbol)
             {
-               ulong magic = m_posInfo.Magic();
+               ulong magic = (ulong)m_posInfo.Magic();
                // Check if magic belongs to our EA (within baseMagic to baseMagic+500)
                if(magic >= m_baseMagic && magic <= (m_baseMagic + 500))
                {

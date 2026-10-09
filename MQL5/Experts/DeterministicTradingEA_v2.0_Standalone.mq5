@@ -1435,6 +1435,7 @@ public:
    }
 
    bool Init(const string symbol, const ENUM_TIMEFRAMES tf, const bool cp = true, const bool moving = true,
+             const double baseRisk = 1.0,
              const bool useLastPivot = true, const double cpPivotBuffer = 0.10,
              const bool behindEma = true, const double behindEmaBuffer = 0.10)
    {
@@ -1442,6 +1443,8 @@ public:
       m_timeframe                = tf;
       m_enableCP                 = cp;
       m_enableMoving             = moving;
+      m_cpBaseRiskPercent        = baseRisk;
+      m_movingRiskPercent        = baseRisk;
       m_useLastPivotForCP        = useLastPivot;
       m_cpLastPivotBufferAtr     = cpPivotBuffer;
       m_movingBehindEmaSL        = behindEma;
@@ -2789,7 +2792,7 @@ public:
       {
          if(m_posInfo.SelectByIndex(i) && m_posInfo.Symbol() == symbol)
          {
-            if(m_posInfo.Magic() >= m_baseMagic && m_posInfo.Magic() <= m_baseMagic + 500)
+            if((ulong)m_posInfo.Magic() >= m_baseMagic && (ulong)m_posInfo.Magic() <= m_baseMagic + 500)
                m_trade.PositionClose(m_posInfo.Ticket());
          }
       }
@@ -3028,7 +3031,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
 
             long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
             ENUM_STRATEGY_TYPE strat = STRATEGY_NONE;
-            if(magic >= InpBaseMagicNumber && magic <= InpBaseMagicNumber + 500)
+            if((ulong)magic >= InpBaseMagicNumber && (ulong)magic <= InpBaseMagicNumber + 500)
             {
                int stratId = (int)((magic - InpBaseMagicNumber) / 100);
                if(stratId >= 1 && stratId <= 4)
