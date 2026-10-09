@@ -21,9 +21,11 @@ private:
    int               m_handleSlowEma;  // EMA600 on M5, EMA800 on M15
    int               m_handleAtr;
    int               m_handleBaselineAtr; // Baseline ATR 100 for volatility regime tracking
+   int               m_handleAdx;         // ADX 14 for trend/chop regime gating
    
    int               m_slowEmaPeriod;
    int               m_atrPeriod;
+   int               m_adxPeriod;
 
 public:
    CIndicatorEngine()
@@ -32,8 +34,10 @@ public:
         m_handleSlowEma(INVALID_HANDLE),
         m_handleAtr(INVALID_HANDLE),
         m_handleBaselineAtr(INVALID_HANDLE),
+        m_handleAdx(INVALID_HANDLE),
         m_slowEmaPeriod(600),
-        m_atrPeriod(14)
+        m_atrPeriod(14),
+        m_adxPeriod(14)
    {
    }
 
@@ -50,6 +54,7 @@ public:
       m_symbol    = symbol;
       m_timeframe = tf;
       m_atrPeriod = atrPeriod;
+      m_adxPeriod = 14;
 
       // Deterministic slow EMA selection based on timeframe:
       // M5 -> EMA 600, M15 (and above) -> EMA 800
@@ -94,6 +99,12 @@ public:
          PrintFormat("[IndicatorEngine] Warning: Failed to create baseline ATR100 handle for %s %s", m_symbol, EnumToString(m_timeframe));
       }
 
+      m_handleAdx = iADX(m_symbol, m_timeframe, m_adxPeriod);
+      if(m_handleAdx == INVALID_HANDLE)
+      {
+         PrintFormat("[IndicatorEngine] Warning: Failed to create ADX%d handle for %s %s", m_adxPeriod, m_symbol, EnumToString(m_timeframe));
+      }
+
       return true;
    }
 
@@ -107,6 +118,7 @@ public:
       if(m_handleSlowEma != INVALID_HANDLE)     { IndicatorRelease(m_handleSlowEma);     m_handleSlowEma = INVALID_HANDLE; }
       if(m_handleAtr != INVALID_HANDLE)         { IndicatorRelease(m_handleAtr);         m_handleAtr = INVALID_HANDLE; }
       if(m_handleBaselineAtr != INVALID_HANDLE) { IndicatorRelease(m_handleBaselineAtr); m_handleBaselineAtr = INVALID_HANDLE; }
+      if(m_handleAdx != INVALID_HANDLE)         { IndicatorRelease(m_handleAdx);         m_handleAdx = INVALID_HANDLE; }
    }
 
    //+------------------------------------------------------------------+
@@ -178,6 +190,38 @@ public:
       if(baseline <= 0.0) return 1.0;
       double current = GetATR(shift);
       return (current / baseline);
+   }
+
+   //+------------------------------------------------------------------+
+   //| Get ADX(14) value at shift for regime gating                     |
+   //+------------------------------------------------------------------+
+   double GetADX(const int shift = 1) const
+   {
+      if(m_handleAdx == INVALID_HANDLE) return 25.0; // Neutral default if handle missing
+      double buffer[];
+      ArraySetAsSeries(buffer, true);
+      if(CopyBuffer(m_handleAdx, 0, shift, 1, buffer) < 1) return 25.0;
+      return buffer[0];
+   }
+
+   //+------------------------------------------------------------------+
+   //| Get Kaufman Efficiency Ratio (ER = Direction / Volatility)       |
+   //| ER in [0.0, 1.0]: >0.35 = Trending, <0.20 = Pure Noise/Chop      |
+   //+------------------------------------------------------------------+
+   double GetKaufmanER(const int period = 10, const int shift = 1) const
+   {
+      MqlRates rates[];
+      ArraySetAsSeries(rates, true);
+      int copied = CopyRates(m_symbol, m_timeframe, shift, period + 1, rates);
+      if(copied <= period) return 0.30;
+
+      double change = MathAbs(rates[0].close - rates[period].close);
+      double volatility = 0.0;
+      for(int i = 0; i < period; i++)
+         volatility += MathAbs(rates[i].close - rates[i + 1].close);
+
+      if(volatility <= 0.0) return 0.0;
+      return MathMin(1.0, change / volatility);
    }
 
    int GetSlowEmaPeriod() const { return m_slowEmaPeriod; }

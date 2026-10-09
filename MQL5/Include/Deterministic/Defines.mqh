@@ -116,6 +116,14 @@ enum ENUM_STRUCTURE_EVENT
    EVENT_CHOCH_BEARISH= 8    // Change of Character Bearish
 };
 
+enum ENUM_ASSET_CLASS
+{
+   ASSET_CLASS_AUTO   = 0,  // Auto-detect based on symbol ticker
+   ASSET_CLASS_FOREX  = 1,  // Standard Forex Majors/Minors (EURUSD, GBPUSD)
+   ASSET_CLASS_METALS = 2,  // Spot Metals / Commodities (XAUUSD / Gold)
+   ASSET_CLASS_INDICES= 3   // Stock Indices / CFDs (US30 / Dow Jones, NAS100)
+};
+
 enum ENUM_REJECTION_REASON
 {
    REJECT_NONE = 0,
@@ -134,7 +142,65 @@ enum ENUM_REJECTION_REASON
    REJECT_CONSECUTIVE_LOSS_RESTRICTION,
    REJECT_INVALID_SL_PLACEMENT,
    REJECT_INVALID_TP_PLACEMENT,
-   REJECT_VOLUME_OUT_OF_BOUNDS
+   REJECT_VOLUME_OUT_OF_BOUNDS,
+   // Version 2.0 Institutional Capital & Regime Governors
+   REJECT_HWM_DRAWDOWN_LIMIT,         // Lifetime High-Water Mark Trailing DD Limit
+   REJECT_WEEKLY_DRAWDOWN_LIMIT,      // Rolling Weekly Loss Limit
+   REJECT_SESSION_FILTER,             // Outside Liquid Asset Session Window
+   REJECT_REGIME_ADX_CHOP,            // Trend Strategy Blocked: ADX < Threshold (Chop)
+   REJECT_REGIME_ADX_TREND,           // Range Strategy Blocked: ADX > Threshold (Trend Runaway)
+   REJECT_CIRCUIT_BREAKER_SLEEP       // Strategy in Virtual Sleep Mode (Zero Live Risk)
+};
+
+//+------------------------------------------------------------------+
+//| Version 2.0 Asset Class Specific Execution Profile               |
+//+------------------------------------------------------------------+
+struct AssetProfile
+{
+   string            symbol;
+   ENUM_ASSET_CLASS  assetClass;
+   int               maxSpreadPoints;       // Forex: 20 pts (2 pips), Gold: 80 pts ($0.80), US30: 400 pts
+   double            stopLossBufferAtr;     // Forex: 0.15 ATR, Gold: 0.45 ATR, US30: 0.40 ATR
+   double            minEmaSeparationAtr;   // Forex: 0.50 ATR, Gold: 0.80 ATR, US30: 1.00 ATR
+   int               sessionStartHour;      // Allowed entry window start hour (GMT)
+   int               sessionStartMinute;
+   int               sessionEndHour;        // Allowed entry window end hour (GMT)
+   int               sessionEndMinute;
+   bool              blockRollover;         // Block entries during 21:30 - 01:30 rollover spike
+};
+
+//+------------------------------------------------------------------+
+//| Version 2.0 Sovereign Peak Equity & Weekly Drawdown Metrics      |
+//+------------------------------------------------------------------+
+struct HwmDrawdownMetrics
+{
+   double            peakEquity;               // Lifetime High-Water Mark Peak Equity
+   datetime          peakTime;                 // When the peak was achieved
+   double            currentTrailingDdPercent; // Drawdown from Peak Equity (%)
+   double            maxTrailingDdPercent;     // Maximum allowable trailing drawdown (%)
+   double            weeklyStartBalance;       // Balance at Monday open
+   double            weeklyLossPercent;        // Current loss since week start (%)
+   double            maxWeeklyLossPercent;     // Maximum allowable weekly loss (%)
+   double            dynamicDampingFactor;     // Scale factor [0.25, 1.00] scaling risk as DD grows
+   bool              isHwmHalted;              // True if trailing DD limit hit
+   bool              isWeeklyHalted;           // True if weekly loss limit hit
+};
+
+//+------------------------------------------------------------------+
+//| Version 2.0 Strategy Virtual Circuit Breaker State               |
+//+------------------------------------------------------------------+
+struct StrategyCircuitBreaker
+{
+   bool              isSleeping;               // True = in virtual sleep, taking zero live risk
+   datetime          sleepStartTime;
+   int               virtualTradesCount;
+   int               virtualConsecutiveWins;
+   int               virtualWins;
+   int               virtualLosses;
+   double            virtualGrossProfit;
+   double            virtualGrossLoss;
+   double            virtualProfitFactor;
+   string            triggerReason;
 };
 
 //+------------------------------------------------------------------+

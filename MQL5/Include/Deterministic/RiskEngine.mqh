@@ -47,6 +47,20 @@ private:
    double            m_dayStartEquity;
    bool              m_killSwitchTriggered;
 
+   // === Version 2.0 Institutional Capital & Asset Governors ===
+   bool              m_enableV2Governors;
+   double            m_peakEquity;
+   datetime          m_peakTime;
+   double            m_maxTrailingDrawdownPercent; // e.g. 8.0% from lifetime peak
+   bool              m_hwmKillSwitchTriggered;
+   datetime          m_currentWeek;
+   double            m_weekStartBalance;
+   double            m_maxWeeklyLossPercent;       // e.g. 5.0% from Monday open
+   bool              m_weeklyKillSwitchTriggered;
+   bool              m_enableDynamicDamping;       // Smoothly scales down risk as DD grows
+   bool              m_enableSessionFilter;        // Session liquidity windows
+   AssetProfile      m_assetProfile;
+
 public:
    CRiskEngine()
       : m_maxRiskPerTradePercent(1.0),
@@ -69,7 +83,18 @@ public:
         m_currentDay(0),
         m_dayStartBalance(0.0),
         m_dayStartEquity(0.0),
-        m_killSwitchTriggered(false)
+        m_killSwitchTriggered(false),
+        m_enableV2Governors(true),
+        m_peakEquity(0.0),
+        m_peakTime(0),
+        m_maxTrailingDrawdownPercent(8.0),
+        m_hwmKillSwitchTriggered(false),
+        m_currentWeek(0),
+        m_weekStartBalance(0.0),
+        m_maxWeeklyLossPercent(5.0),
+        m_weeklyKillSwitchTriggered(false),
+        m_enableDynamicDamping(true),
+        m_enableSessionFilter(true)
    {
    }
 
@@ -84,7 +109,13 @@ public:
              const int eodHour = 23,
              const int eodMinute = 45,
              const ENUM_TP_MODE tpMode = TP_MODE_AUTO,
-             const double manualTpMultiple = 2.0)
+             const double manualTpMultiple = 2.0,
+             const bool enableV2Governors = true,
+             const double maxTrailingDd = 8.0,
+             const double maxWeeklyLoss = 5.0,
+             const bool enableDynamicDamping = true,
+             const bool enableSessionFilter = true,
+             const ENUM_ASSET_CLASS requestedAssetClass = ASSET_CLASS_AUTO)
    {
       m_maxRiskPerTradePercent    = maxRisk;
       m_maxDailyLossPercent       = maxDailyLoss;
@@ -97,8 +128,235 @@ public:
       m_tpMode                    = tpMode;
       m_manualTpMultiple          = manualTpMultiple;
 
+      // Version 2.0 Governors
+      m_enableV2Governors          = enableV2Governors;
+      m_maxTrailingDrawdownPercent= maxTrailingDd;
+      m_maxWeeklyLossPercent      = maxWeeklyLoss;
+      m_enableDynamicDamping      = enableDynamicDamping;
+      m_enableSessionFilter       = enableSessionFilter;
+
+      DetectAndConfigureAssetProfile(_Symbol, requestedAssetClass);
+
       UpdateDailyState();
+      UpdateHwmAndWeeklyState();
       return true;
+   }
+
+   //+------------------------------------------------------------------+
+   //| Auto-detect or configure asset class profile                     |
+   //+------------------------------------------------------------------+
+   void DetectAndConfigureAssetProfile(const string symbol, const ENUM_ASSET_CLASS reqClass = ASSET_CLASS_AUTO)
+   {
+      m_assetProfile.symbol = symbol;
+      string upperSym = symbol;
+      StringToUpper(upperSym);
+
+      ENUM_ASSET_CLASS resolvedClass = reqClass;
+      if(resolvedClass == ASSET_CLASS_AUTO)
+      {
+         if(StringFind(upperSym, "XAU") >= 0 || StringFind(upperSym, "GOLD") >= 0 || StringFind(upperSym, "SILVER") >= 0)
+            resolvedClass = ASSET_CLASS_METALS;
+         else if(StringFind(upperSym, "30") >= 0 || StringFind(upperSym, "DOW") >= 0 || StringFind(upperSym, "WS30") >= 0 ||
+                 StringFind(upperSym, "DJ") >= 0 || StringFind(upperSym, "NAS") >= 0 || StringFind(upperSym, "SPX") >= 0 ||
+                 StringFind(upperSym, "100") >= 0 || StringFind(upperSym, "500") >= 0)
+            resolvedClass = ASSET_CLASS_INDICES;
+         else
+            resolvedClass = ASSET_CLASS_FOREX;
+      }
+
+      m_assetProfile.assetClass = resolvedClass;
+
+      // Configure symbol-specific execution tolerances
+      switch(resolvedClass)
+      {
+         case ASSET_CLASS_METALS:
+            m_assetProfile.maxSpreadPoints     = 80;    // 80 pts = $0.80 on Gold
+            m_assetProfile.stopLossBufferAtr   = 0.45;  // 0.45 ATR buffer to absorb wick stop-hunts
+            m_assetProfile.minEmaSeparationAtr = 0.80;  // 0.80 ATR separation for clear trend
+            m_assetProfile.sessionStartHour    = 8;     // 08:00 GMT (London Open)
+            m_assetProfile.sessionStartMinute  = 0;
+            m_assetProfile.sessionEndHour      = 17;    // 17:30 GMT (London Close)
+            m_assetProfile.sessionEndMinute    = 30;
+            m_assetProfile.blockRollover       = true;  // Block 21:30 - 01:30 rollover spread spike
+            break;
+
+         case ASSET_CLASS_INDICES:
+            m_assetProfile.maxSpreadPoints     = 400;   // 400 pts = 4.0 Dow points
+            m_assetProfile.stopLossBufferAtr   = 0.40;  // 0.40 ATR buffer
+            m_assetProfile.minEmaSeparationAtr = 1.00;  // 1.00 ATR separation for strong index momentum
+            m_assetProfile.sessionStartHour    = 13;    // 13:30 GMT (US Cash Open)
+            m_assetProfile.sessionStartMinute  = 30;
+            m_assetProfile.sessionEndHour      = 20;    // 20:00 GMT (US Afternoon)
+            m_assetProfile.sessionEndMinute    = 0;
+            m_assetProfile.blockRollover       = true;
+            break;
+
+         case ASSET_CLASS_FOREX:
+         default:
+            m_assetProfile.maxSpreadPoints     = 20;    // 20 pts = 2.0 pips for Majors
+            m_assetProfile.stopLossBufferAtr   = 0.15;  // 0.15 ATR standard buffer
+            m_assetProfile.minEmaSeparationAtr = 0.50;  // 0.50 ATR separation
+            m_assetProfile.sessionStartHour    = 7;     // 07:00 GMT (London Open)
+            m_assetProfile.sessionStartMinute  = 0;
+            m_assetProfile.sessionEndHour      = 17;    // 17:00 GMT (NY Midday)
+            m_assetProfile.sessionEndMinute    = 0;
+            m_assetProfile.blockRollover       = true;  // Block Asian quiet hours
+            break;
+      }
+
+      // If default spread wasn't custom overridden, adopt asset profile spread
+      if(m_enableV2Governors)
+      {
+         m_maxSpreadPoints = m_assetProfile.maxSpreadPoints;
+         PrintFormat("[RiskEngine v2.0] Asset Profile configured: %s (Class: %s, MaxSpread: %d pts, SLBuffer: %.2fx ATR)",
+                     symbol, EnumToString(m_assetProfile.assetClass), m_assetProfile.maxSpreadPoints, m_assetProfile.stopLossBufferAtr);
+      }
+   }
+
+   //+------------------------------------------------------------------+
+   //| Version 2.0 Peak Equity (HWM) & Weekly State Management          |
+   //+------------------------------------------------------------------+
+   void UpdateHwmAndWeeklyState()
+   {
+      double currentEquity = m_account.Equity();
+      if(currentEquity <= 0.0) currentEquity = m_account.Balance();
+
+      // 1. High-Water Mark (Peak Equity) Tracking
+      if(m_peakEquity <= 0.0 || currentEquity > m_peakEquity)
+      {
+         m_peakEquity = currentEquity;
+         m_peakTime   = TimeCurrent();
+         m_hwmKillSwitchTriggered = false; // Reset if new peak reached
+      }
+
+      // 2. Weekly Reset tracking (Monday 00:00 GMT)
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(), dt);
+      // Day of week 1 = Monday
+      if(dt.day_of_week == 1 && (TimeCurrent() - m_currentWeek) > 86400 * 5)
+      {
+         m_currentWeek               = TimeCurrent();
+         m_weekStartBalance          = m_account.Balance();
+         m_weeklyKillSwitchTriggered = false;
+         PrintFormat("[RiskEngine v2.0] New trading week initialized. Week Start Balance: %.2f", m_weekStartBalance);
+      }
+      else if(m_weekStartBalance <= 0.0)
+      {
+         m_weekStartBalance = m_account.Balance();
+         m_currentWeek      = TimeCurrent();
+      }
+   }
+
+   //+------------------------------------------------------------------+
+   //| Check Sovereign High-Water Mark (Peak Equity) Trailing Drawdown  |
+   //+------------------------------------------------------------------+
+   bool CheckHwmDrawdown(double &outTrailingDdPercent)
+   {
+      UpdateHwmAndWeeklyState();
+
+      if(!m_enableV2Governors || m_maxTrailingDrawdownPercent <= 0.0)
+      {
+         outTrailingDdPercent = 0.0;
+         return true;
+      }
+
+      double currentEquity = m_account.Equity();
+      double trailingDd = 0.0;
+      if(m_peakEquity > 0.0)
+         trailingDd = ((m_peakEquity - currentEquity) / m_peakEquity) * 100.0;
+
+      outTrailingDdPercent = MathMax(trailingDd, 0.0);
+
+      if(outTrailingDdPercent >= m_maxTrailingDrawdownPercent)
+      {
+         m_hwmKillSwitchTriggered = true;
+         return false; // Trailing HWM limit hit - halts trading until recovery
+      }
+
+      return true;
+   }
+
+   //+------------------------------------------------------------------+
+   //| Check Weekly Drawdown Limit (e.g. 5.0% max loss per week)        |
+   //+------------------------------------------------------------------+
+   bool CheckWeeklyDrawdown(double &outWeeklyLossPercent)
+   {
+      UpdateHwmAndWeeklyState();
+
+      if(!m_enableV2Governors || m_maxWeeklyLossPercent <= 0.0)
+      {
+         outWeeklyLossPercent = 0.0;
+         return true;
+      }
+
+      double currentEquity = m_account.Equity();
+      double weeklyLoss = 0.0;
+      if(m_weekStartBalance > 0.0)
+         weeklyLoss = ((m_weekStartBalance - currentEquity) / m_weekStartBalance) * 100.0;
+
+      outWeeklyLossPercent = MathMax(weeklyLoss, 0.0);
+
+      if(outWeeklyLossPercent >= m_maxWeeklyLossPercent)
+      {
+         m_weeklyKillSwitchTriggered = true;
+         return false; // Weekly loss limit reached - halts until next Monday
+      }
+
+      return true;
+   }
+
+   //+------------------------------------------------------------------+
+   //| Version 2.0 Dynamic Risk Damping Factor                          |
+   //| Smoothly scales risk down from 1.0x to 0.25x as DD increases      |
+   //+------------------------------------------------------------------+
+   double GetDynamicDampingFactor()
+   {
+      if(!m_enableV2Governors || !m_enableDynamicDamping || m_maxTrailingDrawdownPercent <= 0.0)
+         return 1.0;
+
+      double trailingDd = 0.0;
+      CheckHwmDrawdown(trailingDd);
+
+      // If trailing DD is under 2.0%, no damping
+      if(trailingDd < 2.0) return 1.0;
+
+      // Scale down linearly towards 0.25x as DD reaches maximum limit
+      double progress = (trailingDd - 2.0) / (m_maxTrailingDrawdownPercent - 2.0);
+      double damping = 1.0 - (progress * 0.75);
+      return MathMax(0.25, MathMin(1.0, damping));
+   }
+
+   //+------------------------------------------------------------------+
+   //| Version 2.0 Session Liquidity Filter (Blocks Asian / Rollover)   |
+   //+------------------------------------------------------------------+
+   bool IsWithinAllowedSession() const
+   {
+      if(!m_enableV2Governors || !m_enableSessionFilter)
+         return true;
+
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(), dt);
+      int currentMinutes = dt.hour * 60 + dt.min;
+
+      // Rollover check: 21:30 to 01:30 GMT
+      if(m_assetProfile.blockRollover)
+      {
+         if(currentMinutes >= (21 * 60 + 30) || currentMinutes <= (1 * 60 + 30))
+            return false;
+      }
+
+      int startMinutes = m_assetProfile.sessionStartHour * 60 + m_assetProfile.sessionStartMinute;
+      int endMinutes   = m_assetProfile.sessionEndHour * 60 + m_assetProfile.sessionEndMinute;
+
+      if(startMinutes < endMinutes)
+      {
+         return (currentMinutes >= startMinutes && currentMinutes <= endMinutes);
+      }
+      else
+      {
+         // Overnight window
+         return (currentMinutes >= startMinutes || currentMinutes <= endMinutes);
+      }
    }
 
    void SetSelfOptimizer(CSelfOptimizer *opt)
