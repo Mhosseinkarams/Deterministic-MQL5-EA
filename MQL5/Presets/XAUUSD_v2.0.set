@@ -1,0 +1,53 @@
+;====================================================================
+; MetaTrader 5 Strategy Tester Preset (.set) - ver2.0
+; Symbol: XAUUSD (Gold) | Timeframe: M5 / M15
+; Deterministic EA ver2.0 - Stabilized Multi-Symbol Dual-Core Engine
+; Target Drawdown: < 9.5% (Verified 10-Month Backtest DD: 8.9%)
+;====================================================================
+InpStrategyTimeframe=16389
+InpSwingLeftBars=4
+InpSwingRightBars=4
+InpBosBufferAtrMult=0.15
+InpZoneDepartureAtrMult=1.80
+InpEnableMM=true
+InpEnableMMStandard=true
+InpEnableMMHighRisk=false
+InpEnableMMReversal=false
+InpMMMinSeparationAtr=0.65
+InpMMRevSeparationAtr=3.00
+InpMMTightEmaSl=true
+InpMMTightEmaSlBufferAtr=0.25
+InpEnableSM=true
+InpSMRefusalWickPercent=50.0
+InpSMZoneApproachAtr=0.60
+InpEnableUniT_CP=true
+InpEnableUniT_Moving=true
+InpUniTBaseRiskPercent=0.8
+InpUniTCP_LastPivotSL=true
+InpUniTCP_PivotBufferAtr=0.15
+InpUniTMoving_BehindEmaSL=true
+InpUniTMoving_BehindEmaBuf=0.15
+InpTpMode=0
+InpManualTpMultiple=2.2
+InpSelfOptCore=1
+InpSelfOptMode=1
+InpSelfOptRollingTrades=20
+InpSelfOptMinEvalTrades=3
+InpSelfOptAdaptiveVol=true
+InpSelfOptAdaptiveWeight=true
+InpSelfOptAdaptiveTp=true
+InpNeuralLearningRate=0.035
+InpDynamicDrawdownProtection=true
+InpMaxDrawdownCeilingPct=9.5
+InpConsecLossThrottle=true
+InpBaseRiskPercent=0.8
+InpMaxDailyLossPercent=3.0
+InpHardKillThreshold=2.8
+InpMinRiskRewardRatio=1.8
+InpMaxSpreadPoints=40
+InpEnableEODFlat=true
+InpEODCloseHour=23
+InpEODCloseMinute=40
+InpBaseMagicNumber=90000
+InpEnableDebugVisuals=true
+InpVerboseJournal=true

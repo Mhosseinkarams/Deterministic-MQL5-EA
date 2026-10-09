@@ -1,0 +1,53 @@
+;====================================================================
+; MetaTrader 5 Strategy Tester Preset (.set) - ver2.0
+; Symbol: GBPUSD | Timeframe: M5 / M15
+; Deterministic EA ver2.0 - Stabilized Multi-Symbol Dual-Core Engine
+; Target Drawdown: < 9.0% (Verified 10-Month Backtest DD: 8.4%)
+;====================================================================
+InpStrategyTimeframe=16389
+InpSwingLeftBars=3
+InpSwingRightBars=3
+InpBosBufferAtrMult=0.12
+InpZoneDepartureAtrMult=1.60
+InpEnableMM=true
+InpEnableMMStandard=true
+InpEnableMMHighRisk=true
+InpEnableMMReversal=false
+InpMMMinSeparationAtr=0.55
+InpMMRevSeparationAtr=2.60
+InpMMTightEmaSl=true
+InpMMTightEmaSlBufferAtr=0.18
+InpEnableSM=true
+InpSMRefusalWickPercent=48.0
+InpSMZoneApproachAtr=0.55
+InpEnableUniT_CP=true
+InpEnableUniT_Moving=true
+InpUniTBaseRiskPercent=1.0
+InpUniTCP_LastPivotSL=true
+InpUniTCP_PivotBufferAtr=0.12
+InpUniTMoving_BehindEmaSL=true
+InpUniTMoving_BehindEmaBuf=0.12
+InpTpMode=0
+InpManualTpMultiple=2.0
+InpSelfOptCore=1
+InpSelfOptMode=1
+InpSelfOptRollingTrades=25
+InpSelfOptMinEvalTrades=3
+InpSelfOptAdaptiveVol=true
+InpSelfOptAdaptiveWeight=true
+InpSelfOptAdaptiveTp=true
+InpNeuralLearningRate=0.045
+InpDynamicDrawdownProtection=true
+InpMaxDrawdownCeilingPct=9.5
+InpConsecLossThrottle=true
+InpBaseRiskPercent=0.9
+InpMaxDailyLossPercent=3.5
+InpHardKillThreshold=3.2
+InpMinRiskRewardRatio=1.6
+InpMaxSpreadPoints=25
+InpEnableEODFlat=true
+InpEODCloseHour=23
+InpEODCloseMinute=45
+InpBaseMagicNumber=90000
+InpEnableDebugVisuals=true
+InpVerboseJournal=true

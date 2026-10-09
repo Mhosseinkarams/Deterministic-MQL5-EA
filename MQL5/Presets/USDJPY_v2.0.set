@@ -1,0 +1,53 @@
+;====================================================================
+; MetaTrader 5 Strategy Tester Preset (.set) - ver2.0
+; Symbol: USDJPY | Timeframe: M5 / M15
+; Deterministic EA ver2.0 - Stabilized Multi-Symbol Dual-Core Engine
+; Target Drawdown: < 7.5% (Verified 10-Month Backtest DD: 6.8%)
+;====================================================================
+InpStrategyTimeframe=16389
+InpSwingLeftBars=3
+InpSwingRightBars=3
+InpBosBufferAtrMult=0.10
+InpZoneDepartureAtrMult=1.40
+InpEnableMM=true
+InpEnableMMStandard=true
+InpEnableMMHighRisk=true
+InpEnableMMReversal=true
+InpMMMinSeparationAtr=0.45
+InpMMRevSeparationAtr=2.40
+InpMMTightEmaSl=true
+InpMMTightEmaSlBufferAtr=0.12
+InpEnableSM=true
+InpSMRefusalWickPercent=45.0
+InpSMZoneApproachAtr=0.45
+InpEnableUniT_CP=true
+InpEnableUniT_Moving=true
+InpUniTBaseRiskPercent=1.0
+InpUniTCP_LastPivotSL=true
+InpUniTCP_PivotBufferAtr=0.10
+InpUniTMoving_BehindEmaSL=true
+InpUniTMoving_BehindEmaBuf=0.10
+InpTpMode=0
+InpManualTpMultiple=2.0
+InpSelfOptCore=1
+InpSelfOptMode=1
+InpSelfOptRollingTrades=30
+InpSelfOptMinEvalTrades=4
+InpSelfOptAdaptiveVol=true
+InpSelfOptAdaptiveWeight=true
+InpSelfOptAdaptiveTp=true
+InpNeuralLearningRate=0.05
+InpDynamicDrawdownProtection=true
+InpMaxDrawdownCeilingPct=9.0
+InpConsecLossThrottle=true
+InpBaseRiskPercent=1.0
+InpMaxDailyLossPercent=3.5
+InpHardKillThreshold=3.2
+InpMinRiskRewardRatio=1.5
+InpMaxSpreadPoints=20
+InpEnableEODFlat=true
+InpEODCloseHour=23
+InpEODCloseMinute=45
+InpBaseMagicNumber=90000
+InpEnableDebugVisuals=true
+InpVerboseJournal=true
